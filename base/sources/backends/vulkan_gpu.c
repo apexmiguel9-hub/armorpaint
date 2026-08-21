@@ -961,6 +961,9 @@ static void create_swapchain() {
 	swapchain_info.queueFamilyIndexCount = 0;
 	swapchain_info.pQueueFamilyIndices   = NULL;
 	swapchain_info.presentMode           = window_vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_MAILBOX_KHR;
+	iron_log("PERF: swapchain presentMode=%s (window_vsync=%d, %ux%u, imageCount=%u)",
+	         window_vsync ? "FIFO" : "MAILBOX", window_vsync ? 1 : 0, swapchain_info.imageExtent.width,
+	         swapchain_info.imageExtent.height, swapchain_info.minImageCount);
 	swapchain_info.oldSwapchain          = old_swapchain;
 	swapchain_info.clipped               = true;
 

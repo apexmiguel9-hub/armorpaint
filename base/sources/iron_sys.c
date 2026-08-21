@@ -404,12 +404,15 @@ static void _sys_run_callbacks(any_array_t *cbs, i32 len) {
 }
 
 void sys_render(void) {
-	i32 len = _sys_on_next_frames->length;
+	f64 _perf_t0     = sys_time();
+	i32 len          = _sys_on_next_frames->length;
 	_sys_run_callbacks(_sys_on_next_frames, len);
 	array_splice(_sys_on_next_frames, 0, len);
 
 	scene_render_frame();
+	f64 _perf_t1 = sys_time();
 	_sys_run_callbacks(_sys_on_updates, _sys_on_updates->length);
+	f64 _perf_t2 = sys_time();
 
 	len = _sys_on_end_frames->length;
 	_sys_run_callbacks(_sys_on_end_frames, len);
@@ -431,6 +434,12 @@ void sys_render(void) {
 	_sys_lasth           = sys_h();
 	_sys_time_real_delta = sys_time() - _sys_time_last;
 	_sys_time_last       = sys_time();
+	static i32 _perf_frame = 0;
+	if (_perf_frame++ < 40 || (_perf_frame % 30) == 0) {
+		iron_log("PERF: pump render=%.1fms updates=%.1fms endf+rest=%.1fms total=%.1fms",
+		         (_perf_t1 - _perf_t0) * 1000.0, (_perf_t2 - _perf_t1) * 1000.0,
+		         (sys_time() - _perf_t2) * 1000.0, (sys_time() - _perf_t0) * 1000.0);
+	}
 }
 
 // Hooks
