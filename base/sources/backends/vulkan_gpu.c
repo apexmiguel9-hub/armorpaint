@@ -1080,7 +1080,10 @@ static void acquire_next_image() {
 		acquire_next_image();
 		return;
 	}
-	framebuffer_wait_pending = true;
+	// Acquired image layout is undefined per spec. MAILBOX may return images out of order,
+	// so always reset the tracked state for this slot (gpu_barrier then emits UNDEFINED->RT).
+	framebuffer_undefined[framebuffer_index] = true;
+	framebuffer_wait_pending                 = true;
 }
 
 void gpu_resize_internal(int width, int height) {
