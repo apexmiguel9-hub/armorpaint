@@ -405,9 +405,10 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 	if (rp == VK_NULL_HANDLE) {
 		return;
 	}
-	fb_key.rp     = rp;
-	fb_key.width  = info->renderArea.extent.width;
-	fb_key.height = info->renderArea.extent.height;
+	fb_key.rp          = rp;
+	fb_key.color_count = rp_key.color_count;
+	fb_key.width       = info->renderArea.extent.width;
+	fb_key.height      = info->renderArea.extent.height;
 
 	VkFramebuffer fb = iron_shim_get_framebuffer(&fb_key);
 	if (fb == VK_NULL_HANDLE) {
