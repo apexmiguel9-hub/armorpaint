@@ -670,9 +670,9 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 	{
 		static int gb_log_count = 0;
-		if (gb_log_count < 15) {
-			iron_log("shim: gpu_barrier #%d state %d->%d layout 0x%x->0x%x", gb_log_count, render_target->state, state_after, old_layout,
-			         convert_texture_state(state_after));
+		if (gb_log_count < 200) {
+			iron_log("BARR[%d] tgt=%p img=%p fmt=%d state %d->%d layout 0x%x->0x%x", gb_log_count, (void *)render_target, (void *)render_target->impl.image,
+			         render_target->format, render_target->state, state_after, old_layout, convert_texture_state(state_after));
 			++gb_log_count;
 		}
 	}
