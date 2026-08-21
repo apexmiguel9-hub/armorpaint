@@ -51,6 +51,29 @@ static bool               window_vsync;
 static VkSurfaceKHR       surface;
 static VkSurfaceFormatKHR surface_format;
 static VkSwapchainKHR     swapchain;
+// Vulkan 1.3 feature flags & runtime detection (see shim below)
+static bool               gpu_vulkan_renderpass_shim;
+static VkFormat           gpu_vulkan_depth_format;
+static uint32_t         gpu_vulkan_sample_count;
+// PFNs for the render-pass2 shim (only used when shim is active)
+static PFN_vkCreateRenderPass2KHR   _vkCreateRenderPass2KHR;
+static PFN_vkCmdBeginRenderPass2KHR _vkCmdBeginRenderPass2KHR;
+static PFN_vkCmdEndRenderPass2KHR   _vkCmdEndRenderPass2KHR;
+// Image format -> render pass cache (shim)
+#define RP_CACHE_MAX 64
+struct rp_cache_entry {
+    VkFormat        color_formats[8];
+    uint32_t        color_count;
+    VkFormat        depth_format;
+    VkSampleCountFlagBits samples;
+    VkRenderPass    render_pass;
+    VkFramebuffer   framebuffer;
+};
+static struct rp_cache_entry rp_cache[RP_CACHE_MAX];
+static int                 rp_cache_count = 0;
+// Track image->format for shim key generation
+static VkFormat         *image_format_map = NULL;
+static uint32_t         image_format_map_size = 0;
 // Vulkan 1.3 core entry points resolved at runtime: the Android NDK stub
 // libvulkan.so only exports them when targeting API 33+, but the driver
 // provides them via vkGetDeviceProcAddr on any API level that supports
@@ -883,6 +906,26 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	}
 	free(supports_present);
 
+{
+    const VkPhysicalDeviceProperties &props = properties;
+    bool vulkan_13 = (props.apiVersion >= VK_API_VERSION_1_3);
+    bool has_dyn_rend_ext = false;
+    for (int i = 0; i < wanted_device_extension_count; i++) {
+        if (strcmp(wanted_device_extensions[i], VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
+            has_dyn_rend_ext = true;
+            break;
+        }
+    }
+    gpu_vulkan_renderpass_shim = !(vulkan_13 || has_dyn_rend_ext);
+    if (gpu_vulkan_renderpass_shim) {
+        for (int i = 0; i < wanted_device_extension_count; i++) {
+            if (strcmp(wanted_device_extensions[i], VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME) == 0) {
+                _vkCreateRenderPass2KHR = (PFN_vkCreateRenderPass2KHR)vkGetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
+            }
+        }
+        gpu_vulkan_depth_format = 0;
+    }
+}
 	if (graphics_queue_node_index == UINT32_MAX || present_queue_node_index == UINT32_MAX) {
 		iron_error("Graphics or present queue not found");
 	}
