@@ -851,6 +851,13 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 
 	bool missing_device_extensions = check_extensions(wanted_device_extensions, wanted_device_extension_count, device_extensions, device_extension_count);
 	free(device_extensions);
+{
+    const VkPhysicalDeviceProperties &props = properties;
+    gpu_vulkan_renderpass_shim = (props.apiVersion < VK_API_VERSION_1_3);
+    if (gpu_vulkan_renderpass_shim) {
+        gpu_vulkan_depth_format = 0;
+    }
+}
 
 	if (missing_device_extensions) {
 		exit(1);
