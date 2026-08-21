@@ -177,7 +177,11 @@ void config_init() {
 			g_config->window_scale = 3.0;
 		}
 #endif
+#ifdef IRON_ANDROID
+		g_config->window_vsync = false; // MAILBOX - FIFO adds 1-3 frames of touch latency
+#else
 		g_config->window_vsync     = true;
+#endif
 		g_config->window_frequency = sys_display_frequency();
 		g_config->rp_bloom         = 0.0;
 		g_config->rp_vignette      = 0.2;

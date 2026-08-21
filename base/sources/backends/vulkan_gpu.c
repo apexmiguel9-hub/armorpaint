@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
@@ -1590,7 +1591,6 @@ void gpu_execute_and_wait() {
 	    .commandBufferCount = 1,
 	    .pCommandBuffers    = &command_buffer,
 	};
-
 	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	if (framebuffer_wait_pending) {
 		submit_info.waitSemaphoreCount = 1;
@@ -1598,8 +1598,19 @@ void gpu_execute_and_wait() {
 		submit_info.pWaitDstStageMask  = &wait_stage;
 		framebuffer_wait_pending       = false;
 	}
+	struct timespec ts0, ts1;
+	clock_gettime(CLOCK_MONOTONIC, &ts0);
 	vkQueueSubmit(queue, 1, &submit_info, fence);
 	vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+	clock_gettime(CLOCK_MONOTONIC, &ts1);
+	{
+		static int ew_log_count = 0;
+		long       ms           = (ts1.tv_sec - ts0.tv_sec) * 1000 + (ts1.tv_nsec - ts0.tv_nsec) / 1000000;
+		if (ew_log_count < 25 || ms > 8) {
+			iron_log("PERF: execute_and_wait stall=%ldms", (long)ms);
+			++ew_log_count;
+		}
+	}
 
 	vkResetCommandBuffer(command_buffer, 0);
 	VkCommandBufferBeginInfo begin_info = {
@@ -1622,6 +1633,16 @@ void gpu_execute_and_wait() {
 }
 
 void gpu_present_internal() {
+	static struct timespec pf_ts;
+	static int             pf_count = 0;
+	struct timespec        now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (pf_count > 0 && pf_count <= 120) {
+		long ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
+		iron_log("PERF: frame %d total=%ldms", pf_count, ms);
+	}
+	pf_ts = now;
+	++pf_count;
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
 
