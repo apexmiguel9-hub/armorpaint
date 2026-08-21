@@ -71,6 +71,21 @@ static VkSwapchainKHR     swapchain;
 // VK_KHR_create_renderpass2 + VK_KHR_depth_stencil_resolve.
 static bool gpu_vulkan_renderpass_shim;
 
+// Pre-1.2 drivers without VK_KHR_separate_depth_stencil_layouts do not know
+// the split depth layouts; map them to the classic combined ones.
+static VkImageLayout iron_compat_layout(VkImageLayout l) {
+	if (!gpu_vulkan_renderpass_shim) {
+		return l;
+	}
+	if (l == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) {
+		return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	}
+	if (l == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL) {
+		return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	}
+	return l;
+}
+
 static PFN_vkCreateRenderPass2KHR   _vkCreateRenderPass2KHR;
 static PFN_vkCmdBeginRenderPass2KHR _vkCmdBeginRenderPass2KHR;
 static PFN_vkCmdEndRenderPass2KHR   _vkCmdEndRenderPass2KHR;
@@ -196,12 +211,12 @@ static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
 		atts[att_count].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
 		atts[att_count].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		atts[att_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		atts[att_count].initialLayout  = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-		atts[att_count].finalLayout    = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		atts[att_count].initialLayout  = iron_compat_layout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+		atts[att_count].finalLayout    = iron_compat_layout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
 		depth_ref.sType      = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
 		depth_ref.attachment = att_count;
-		depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		depth_ref.layout     = iron_compat_layout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 		depth_ref.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		++att_count;
 	}
@@ -495,7 +510,7 @@ static VkImageLayout convert_texture_state(gpu_texture_state_t state) {
 	case GPU_TEXTURE_STATE_RENDER_TARGET:
 		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	case GPU_TEXTURE_STATE_RENDER_TARGET_DEPTH:
-		return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		return iron_compat_layout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 	case GPU_TEXTURE_STATE_PRESENT:
 		return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	}
@@ -613,6 +628,8 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 }
 
 static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkImageLayout old_layout, VkImageLayout new_layout) {
+	old_layout = iron_compat_layout(old_layout);
+	new_layout = iron_compat_layout(new_layout);
 	if (gpu_in_use) {
 		iron_shim_end_rendering(command_buffer);
 	}
@@ -1477,7 +1494,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 		current_depth_attachment_info = (VkRenderingAttachmentInfo){
 		    .sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 		    .imageView          = current_depth_buffer->impl.view,
-		    .imageLayout        = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		    .imageLayout        = iron_compat_layout(VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL),
 		    .resolveMode        = VK_RESOLVE_MODE_NONE,
 		    .resolveImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		    .loadOp             = (flags & GPU_CLEAR_DEPTH) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
