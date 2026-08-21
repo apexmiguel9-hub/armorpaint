@@ -31,6 +31,11 @@ jobs:
       - name: Restore gradle-wrapper.jar (amake corrupts binary copies)
         run: cp base/sources/backends/data/android/gradle/wrapper/gradle-wrapper.jar paint/build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar
 
+      - name: Install CMake 3.22.1 + patch generated gradle (template pins local-only 4.0.2)
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "cmake;3.22.1" > /dev/null
+          sed -i 's/version = "4.0.2"/version = "3.22.1"/' paint/build/ArmorPaint/app/build.gradle.kts
+
       - name: Build APK (debug, installable)
         run: |
           cd paint/build/ArmorPaint
