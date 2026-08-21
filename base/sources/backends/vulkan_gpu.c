@@ -1444,10 +1444,17 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 			qpi.sType                 = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 			qpi.queryType             = VK_QUERY_TYPE_TIMESTAMP;
 			qpi.queryCount            = PERF_TS_MAX;
-			if (vkCreateQueryPool(device, &qpi, NULL, &perf_ts_pool) == VK_SUCCESS) {
+			VkResult qres             = vkCreateQueryPool(device, &qpi, NULL, &perf_ts_pool);
+			if (qres == VK_SUCCESS) {
 				perf_ts_ready = true;
 				iron_log("PERF: timestamp profiling enabled (period=%.1f ns/tick)", perf_ts_period);
 			}
+			else {
+				iron_log("PERF: timestamp pool creation failed (%d)", qres);
+			}
+		}
+		else {
+			iron_log("PERF: device lacks timestamp support (timestampComputeAndGraphics=false)");
 		}
 	}
 
