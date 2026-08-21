@@ -204,9 +204,17 @@ void iron_stop(void) {
 }
 
 bool iron_internal_frame(void) {
+	f64 _t0 = sys_time();
 	iron_internal_update_callback();
-	iron_internal_handle_messages();
-	return running;
+	f64 _t1 = sys_time();
+	bool r = iron_internal_handle_messages();
+	f64 _t2 = sys_time();
+	static i32 _loop_n = 0;
+	f64        _tot    = (_t2 - _t0) * 1000.0;
+	if ((++_loop_n % 50) == 5 && _tot > 20.0) {
+		iron_log("PERF: loop upd=%.1fms msg=%.1fms tot=%.1fms", (_t1 - _t0) * 1000.0, (_t2 - _t1) * 1000.0, _tot);
+	}
+	return r;
 }
 
 void iron_start(void) {
