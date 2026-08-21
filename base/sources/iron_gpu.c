@@ -50,7 +50,7 @@ void gpu_begin(gpu_texture_t **targets, int count, gpu_texture_t *depth_buffer, 
 	}
 	{
 		static int bg_log_count = 0;
-		if (bg_log_count < 60) {
+		if (bg_log_count < 800) {
 			iron_log("BEGIN[%d] ntargets=%d t0=%p depth=%p fbidx=%d", bg_log_count, current_render_targets_count,
 			         current_render_targets_count > 0 ? (void *)current_render_targets[0] : NULL, (void *)current_depth_buffer, framebuffer_index);
 			++bg_log_count;
