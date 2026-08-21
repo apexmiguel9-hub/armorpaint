@@ -1,4 +1,11 @@
 
+// Enable extension declarations in older bundled vulkan_core.h headers.
+#define VK_KHR_create_renderpass2 1
+#define VK_KHR_depth_stencil_resolve 1
+#define VK_KHR_multiview 1
+#define VK_KHR_maintenance2 1
+#define VK_KHR_dynamic_rendering 1
+
 #include "vulkan_gpu.h"
 #include <iron_gpu.h>
 #include <iron_math.h>
@@ -294,8 +301,8 @@ static void iron_shim_end_rendering(VkCommandBuffer cb) {
 		return;
 	}
 	if (_vkCmdEndRenderPass2KHR != NULL) {
-		VkSubpassEndInfo2 end_info = {};
-		end_info.sType             = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_2;
+		VkSubpassEndInfo end_info = {};
+		end_info.sType             = VK_STRUCTURE_TYPE_SUBPASS_END_INFO;
 		_vkCmdEndRenderPass2KHR(cb, &end_info);
 		return;
 	}
@@ -384,8 +391,8 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 	rpbi.clearValueCount = clear_count;
 	rpbi.pClearValues    = clear_count > 0 ? clears : NULL;
 
-	VkSubpassBeginInfo2 begin_info = {};
-	begin_info.sType               = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_2;
+	VkSubpassBeginInfo begin_info = {};
+	begin_info.sType               = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO;
 	begin_info.contents            = VK_SUBPASS_CONTENTS_INLINE;
 
 	_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
