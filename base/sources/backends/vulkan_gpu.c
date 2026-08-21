@@ -251,6 +251,7 @@ static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
 		iron_error("shim: vkCreateRenderPass2KHR failed (%d)", r);
 		return VK_NULL_HANDLE;
 	}
+	iron_log("shim: created RP #%d colors=%u depth=0x%x loads=0x%08x", iron_rp_cache_count, key->color_count, key->depth_format, key->loads);
 
 	if (iron_rp_cache_count < IRON_RP_CACHE_MAX) {
 		iron_rp_cache[iron_rp_cache_count].key = *key;
@@ -299,6 +300,7 @@ static VkFramebuffer iron_shim_get_framebuffer(const struct iron_fb_key *key) {
 		iron_error("shim: vkCreateFramebuffer failed (%d)", r);
 		return VK_NULL_HANDLE;
 	}
+	iron_log("shim: created FB #%d %ux%u colors=%u depth=%d", iron_fb_cache_count, key->width, key->height, key->color_count, has_depth ? 1 : 0);
 
 	if (iron_fb_cache_count < IRON_FB_CACHE_MAX) {
 		iron_fb_cache[iron_fb_cache_count].key = *key;
@@ -321,9 +323,18 @@ static void iron_shim_end_rendering(VkCommandBuffer cb) {
 		return;
 	}
 	if (_vkCmdEndRenderPass2KHR != NULL) {
+		static int shim_end_log_count = 0;
+		bool       do_log             = shim_end_log_count < 10;
 		VkSubpassEndInfo end_info = {};
-		end_info.sType             = VK_STRUCTURE_TYPE_SUBPASS_END_INFO;
+		end_info.sType           = VK_STRUCTURE_TYPE_SUBPASS_END_INFO;
+		if (do_log) {
+			iron_log("shim: end #%d -> CmdEndRenderPass2", shim_end_log_count);
+		}
 		_vkCmdEndRenderPass2KHR(cb, &end_info);
+		if (do_log) {
+			iron_log("shim: end #%d returned OK", shim_end_log_count);
+			++shim_end_log_count;
+		}
 		return;
 	}
 	iron_error("shim: no end-rendering entry point available");
@@ -412,10 +423,22 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 	rpbi.pClearValues    = clear_count > 0 ? clears : NULL;
 
 	VkSubpassBeginInfo begin_info = {};
-	begin_info.sType               = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO;
-	begin_info.contents            = VK_SUBPASS_CONTENTS_INLINE;
+	begin_info.sType              = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO;
+	begin_info.contents           = VK_SUBPASS_CONTENTS_INLINE;
 
-	_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
+	{
+		static int shim_begin_log_count = 0;
+		bool       do_log               = shim_begin_log_count < 10;
+		if (do_log) {
+			iron_log("shim: begin #%d colors=%u depth=%d clearCount=%u area=%ux%u -> CmdBeginRenderPass2", shim_begin_log_count, rp_key.color_count,
+			         rp_key.depth_format != VK_FORMAT_UNDEFINED ? 1 : 0, clear_count, fb_key.width, fb_key.height);
+		}
+		_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
+		if (do_log) {
+			iron_log("shim: begin #%d returned OK", shim_begin_log_count);
+			++shim_begin_log_count;
+		}
+	}
 }
 static VkImage            window_images[GPU_FRAMEBUFFER_COUNT];
 static bool               framebuffer_acquired = false;
@@ -623,6 +646,14 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 	        },
 	};
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	{
+		static int gb_log_count = 0;
+		if (gb_log_count < 15) {
+			iron_log("shim: gpu_barrier #%d state %d->%d layout 0x%x->0x%x", gb_log_count, render_target->state, state_after, old_layout,
+			         convert_texture_state(state_after));
+			++gb_log_count;
+		}
+	}
 
 	render_target->state = state_after;
 }
@@ -659,6 +690,13 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 	}
 
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	{
+		static int sil_log_count = 0;
+		if (sil_log_count < 15) {
+			iron_log("shim: barrier #%d layout 0x%x->0x%x aspect=0x%x", sil_log_count, old_layout, new_layout, aspect_mask);
+			++sil_log_count;
+		}
+	}
 
 	if (gpu_in_use) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
