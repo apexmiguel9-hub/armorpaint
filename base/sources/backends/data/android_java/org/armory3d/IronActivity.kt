@@ -148,7 +148,7 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 	override fun onCreate(state: Bundle?) {
 		super.onCreate(state)
 
-		if (!packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x00403000)) { // 1.3
+		if (!packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, 0x00401000)) { // 1.1
 			startActivity(Intent(this, ErrorActivity::class.java))
 			finish()
 			return
