@@ -184,8 +184,8 @@ void config_init() {
 #endif
 		g_config->window_frequency = sys_display_frequency();
 		g_config->rp_bloom         = 0.0;
-		g_config->rp_vignette      = 0.2;
-		g_config->rp_grain         = 0.09;
+		g_config->rp_vignette      = 0.0; // fullscreen passes are costly on mobile tilers
+		g_config->rp_grain         = 0.0;
 		g_config->rp_contrast      = 1.0;
 		g_config->rp_gamma         = 1.0;
 		g_config->lut_path         = "";

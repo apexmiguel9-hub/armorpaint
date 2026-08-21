@@ -170,6 +170,12 @@ static int                  iron_fb_cache_count = 0;
 static void iron_shim_end_rendering(VkCommandBuffer cb);
 static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo *info);
 
+// Per-frame perf counters (logged in gpu_present_internal).
+static int  perf_frame_begins   = 0;
+static int  perf_frame_ends     = 0;
+static int  perf_frame_draws    = 0;
+static long perf_frame_begin_us = 0;
+
 static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
 	for (int i = 0; i < iron_rp_cache_count; ++i) {
 		if (memcmp(&iron_rp_cache[i].key, key, sizeof(*key)) == 0) {
@@ -1552,7 +1558,12 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	    .pColorAttachments    = current_color_attachment_infos,
 	    .pDepthAttachment     = current_depth_buffer == NULL ? VK_NULL_HANDLE : &current_depth_attachment_info,
 	};
+	struct timespec pb0, pb1;
+	clock_gettime(CLOCK_MONOTONIC, &pb0);
 	iron_shim_begin_rendering(command_buffer, &current_rendering_info);
+	clock_gettime(CLOCK_MONOTONIC, &pb1);
+	++perf_frame_begins;
+	perf_frame_begin_us += (pb1.tv_sec - pb0.tv_sec) * 1000000 + (pb1.tv_nsec - pb0.tv_nsec) / 1000;
 
 	for (size_t i = 0; i < current_render_targets_count; ++i) {
 		current_color_attachment_infos[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1567,6 +1578,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 
 void gpu_end_internal() {
 	iron_shim_end_rendering(command_buffer);
+	++perf_frame_ends;
 
 	for (int i = 0; i < current_render_targets_count; ++i) {
 		gpu_barrier(current_render_targets[i],
@@ -1639,10 +1651,15 @@ void gpu_present_internal() {
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	if (pf_count > 0 && pf_count <= 120) {
 		long ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
-		iron_log("PERF: frame %d total=%ldms", pf_count, ms);
+		iron_log("PERF: frame %d total=%ldms begins=%d ends=%d draws=%d begin_cpu=%ld.%02ldms", pf_count, ms, perf_frame_begins,
+		         perf_frame_ends, perf_frame_draws, perf_frame_begin_us / 1000, (perf_frame_begin_us / 10) % 100);
 	}
 	pf_ts = now;
 	++pf_count;
+	perf_frame_begins = 0;
+	perf_frame_ends   = 0;
+	perf_frame_draws  = 0;
+	perf_frame_begin_us = 0;
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
 
@@ -1689,6 +1706,7 @@ void gpu_present_internal() {
 
 void gpu_draw_internal() {
 	vkCmdDrawIndexed(command_buffer, current_ib->count, 1, 0, 0, 0);
+	++perf_frame_draws;
 }
 
 void gpu_viewport(int x, int y, int width, int height) {
