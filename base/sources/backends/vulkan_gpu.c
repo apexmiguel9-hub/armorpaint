@@ -51,35 +51,345 @@ static bool               window_vsync;
 static VkSurfaceKHR       surface;
 static VkSurfaceFormatKHR surface_format;
 static VkSwapchainKHR     swapchain;
-// Vulkan 1.3 feature flags & runtime detection (see shim below)
-static bool               gpu_vulkan_renderpass_shim;
-static VkFormat           gpu_vulkan_depth_format;
-static uint32_t         gpu_vulkan_sample_count;
-// PFNs for the render-pass2 shim (only used when shim is active)
+// --- Dynamic rendering compat layer -------------------------------------
+// On Vulkan >= 1.3 devices (or devices exposing VK_KHR_dynamic_rendering)
+// the native vkCmdBeginRendering/vkCmdEndRendering entry points are used.
+// On older devices (e.g. Mali G52 / Vulkan 1.1) a compatibility shim
+// translates rendering-info calls into classic render passes created via
+// VK_KHR_create_renderpass2 + VK_KHR_depth_stencil_resolve.
+static bool gpu_vulkan_renderpass_shim;
+
 static PFN_vkCreateRenderPass2KHR   _vkCreateRenderPass2KHR;
 static PFN_vkCmdBeginRenderPass2KHR _vkCmdBeginRenderPass2KHR;
 static PFN_vkCmdEndRenderPass2KHR   _vkCmdEndRenderPass2KHR;
-// Image format -> render pass cache (shim)
-#define RP_CACHE_MAX 64
-struct rp_cache_entry {
-    VkFormat        color_formats[8];
-    uint32_t        color_count;
-    VkFormat        depth_format;
-    VkSampleCountFlagBits samples;
-    VkRenderPass    render_pass;
-    VkFramebuffer   framebuffer;
-};
-static struct rp_cache_entry rp_cache[RP_CACHE_MAX];
-static int                 rp_cache_count = 0;
-// Track image->format for shim key generation
-static VkFormat         *image_format_map = NULL;
-static uint32_t         image_format_map_size = 0;
+
 // Vulkan 1.3 core entry points resolved at runtime: the Android NDK stub
 // libvulkan.so only exports them when targeting API 33+, but the driver
 // provides them via vkGetDeviceProcAddr on any API level that supports
 // VK_KHR_dynamic_rendering / Vulkan 1.3.
 static PFN_vkCmdBeginRendering _vkCmdBeginRendering;
 static PFN_vkCmdEndRendering   _vkCmdEndRendering;
+
+// imageView -> format tracking so the shim can build render pass keys.
+#define IRON_VIEW_FMT_MAX 1024
+struct iron_view_fmt_entry {
+	VkImageView view;
+	VkFormat    fmt;
+};
+static struct iron_view_fmt_entry iron_view_fmts[IRON_VIEW_FMT_MAX];
+static int                        iron_view_fmt_count = 0;
+
+static void iron_view_fmt_record(VkImageView v, VkFormat f) {
+	if (v == VK_NULL_HANDLE || f == VK_FORMAT_UNDEFINED) {
+		return;
+	}
+	for (int i = 0; i < iron_view_fmt_count; ++i) {
+		if (iron_view_fmts[i].view == v) {
+			iron_view_fmts[i].fmt = f;
+			return;
+		}
+	}
+	if (iron_view_fmt_count < IRON_VIEW_FMT_MAX) {
+		iron_view_fmts[iron_view_fmt_count].view = v;
+		iron_view_fmts[iron_view_fmt_count].fmt  = f;
+		++iron_view_fmt_count;
+	}
+	else {
+		iron_error("shim: view format map full");
+	}
+}
+
+static VkFormat iron_view_fmt_get(VkImageView v) {
+	for (int i = 0; i < iron_view_fmt_count; ++i) {
+		if (iron_view_fmts[i].view == v) {
+			return iron_view_fmts[i].fmt;
+		}
+	}
+	return VK_FORMAT_UNDEFINED;
+}
+
+// Render pass cache keyed by attachment formats + load ops.
+#define IRON_RP_CACHE_MAX 64
+struct iron_rp_key {
+	uint32_t color_count;
+	VkFormat color_formats[8];
+	VkFormat depth_format; // VK_FORMAT_UNDEFINED = no depth attachment
+	uint32_t loads;        // bit i: color i uses LOAD_OP_CLEAR, bit31: depth CLEAR
+};
+struct iron_rp_entry {
+	struct iron_rp_key key;
+	VkRenderPass       rp;
+};
+static struct iron_rp_entry iron_rp_cache[IRON_RP_CACHE_MAX];
+static int                  iron_rp_cache_count = 0;
+
+// Framebuffer cache keyed by attachment views + extent + render pass.
+#define IRON_FB_CACHE_MAX 128
+struct iron_fb_key {
+	VkRenderPass rp;
+	uint32_t     color_count;
+	VkImageView  colors[8];
+	VkImageView  depth;
+	uint32_t     width, height;
+};
+struct iron_fb_entry {
+	struct iron_fb_key key;
+	VkFramebuffer      fb;
+};
+static struct iron_fb_entry iron_fb_cache[IRON_FB_CACHE_MAX];
+static int                  iron_fb_cache_count = 0;
+
+static void iron_shim_end_rendering(VkCommandBuffer cb);
+static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo *info);
+
+static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
+	for (int i = 0; i < iron_rp_cache_count; ++i) {
+		if (memcmp(&iron_rp_cache[i].key, key, sizeof(*key)) == 0) {
+			return iron_rp_cache[i].rp;
+		}
+	}
+
+	VkAttachmentDescription2 atts[9];
+	VkAttachmentReference2   color_refs[8];
+	VkAttachmentReference2   depth_ref;
+	memset(atts, 0, sizeof(atts));
+	memset(color_refs, 0, sizeof(color_refs));
+	memset(&depth_ref, 0, sizeof(depth_ref));
+
+	uint32_t att_count = 0;
+	for (uint32_t i = 0; i < key->color_count; ++i) {
+		atts[att_count].sType          = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
+		atts[att_count].format         = key->color_formats[i];
+		atts[att_count].samples        = VK_SAMPLE_COUNT_1_BIT;
+		atts[att_count].loadOp         = (key->loads & (1u << i)) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+		atts[att_count].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+		atts[att_count].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		atts[att_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		atts[att_count].initialLayout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		atts[att_count].finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		color_refs[i].sType      = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
+		color_refs[i].attachment = att_count;
+		color_refs[i].layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		color_refs[i].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		++att_count;
+	}
+
+	bool has_depth = key->depth_format != VK_FORMAT_UNDEFINED;
+	if (has_depth) {
+		atts[att_count].sType          = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
+		atts[att_count].format         = key->depth_format;
+		atts[att_count].samples        = VK_SAMPLE_COUNT_1_BIT;
+		atts[att_count].loadOp         = (key->loads & 0x80000000u) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+		atts[att_count].storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+		atts[att_count].stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		atts[att_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		atts[att_count].initialLayout  = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		atts[att_count].finalLayout    = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+
+		depth_ref.sType      = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
+		depth_ref.attachment = att_count;
+		depth_ref.layout     = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		depth_ref.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		++att_count;
+	}
+
+	VkSubpassDescription2 subpass = {};
+	subpass.sType                 = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2;
+	subpass.pipelineBindPoint     = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount  = key->color_count;
+	subpass.pColorAttachments     = color_refs;
+	subpass.pDepthStencilAttachment = has_depth ? &depth_ref : NULL;
+
+	VkSubpassDependency2 dep = {};
+	dep.sType                = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+	dep.srcSubpass           = VK_SUBPASS_EXTERNAL;
+	dep.dstSubpass           = 0;
+	dep.srcStageMask         = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | (has_depth ? VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT : 0);
+	dep.dstStageMask         = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | (has_depth ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT : 0);
+	dep.dstAccessMask        = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | (has_depth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0);
+
+	VkRenderPassCreateInfo2 rp_info = {};
+	rp_info.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2;
+	rp_info.attachmentCount = att_count;
+	rp_info.pAttachments    = atts;
+	rp_info.subpassCount    = 1;
+	rp_info.pSubpasses      = &subpass;
+	rp_info.dependencyCount = 1;
+	rp_info.pDependencies   = &dep;
+
+	VkRenderPass rp = VK_NULL_HANDLE;
+	VkResult     r  = _vkCreateRenderPass2KHR(device, &rp_info, NULL, &rp);
+	if (r != VK_SUCCESS || rp == VK_NULL_HANDLE) {
+		iron_error("shim: vkCreateRenderPass2KHR failed (%d)", r);
+		return VK_NULL_HANDLE;
+	}
+
+	if (iron_rp_cache_count < IRON_RP_CACHE_MAX) {
+		iron_rp_cache[iron_rp_cache_count].key = *key;
+		iron_rp_cache[iron_rp_cache_count].rp  = rp;
+		++iron_rp_cache_count;
+	}
+	else {
+		static bool warned_rp_full = false;
+		if (!warned_rp_full) {
+			iron_error("shim: render pass cache full");
+			warned_rp_full = true;
+		}
+	}
+	return rp;
+}
+
+static VkFramebuffer iron_shim_get_framebuffer(const struct iron_fb_key *key) {
+	for (int i = 0; i < iron_fb_cache_count; ++i) {
+		if (memcmp(&iron_fb_cache[i].key, key, sizeof(*key)) == 0) {
+			return iron_fb_cache[i].fb;
+		}
+	}
+
+	VkImageView views[9];
+	uint32_t    view_count = 0;
+	for (uint32_t i = 0; i < key->color_count; ++i) {
+		views[view_count++] = key->colors[i];
+	}
+	bool has_depth = key->depth != VK_NULL_HANDLE;
+	if (has_depth) {
+		views[view_count++] = key->depth;
+	}
+
+	VkFramebufferCreateInfo fb_info = {};
+	fb_info.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	fb_info.renderPass      = key->rp;
+	fb_info.attachmentCount = view_count;
+	fb_info.pAttachments    = views;
+	fb_info.width           = key->width;
+	fb_info.height          = key->height;
+	fb_info.layers          = 1;
+
+	VkFramebuffer fb = VK_NULL_HANDLE;
+	VkResult      r  = vkCreateFramebuffer(device, &fb_info, NULL, &fb);
+	if (r != VK_SUCCESS || fb == VK_NULL_HANDLE) {
+		iron_error("shim: vkCreateFramebuffer failed (%d)", r);
+		return VK_NULL_HANDLE;
+	}
+
+	if (iron_fb_cache_count < IRON_FB_CACHE_MAX) {
+		iron_fb_cache[iron_fb_cache_count].key = *key;
+		iron_fb_cache[iron_fb_cache_count].fb  = fb;
+		++iron_fb_cache_count;
+	}
+	else {
+		static bool warned_fb_full = false;
+		if (!warned_fb_full) {
+			iron_error("shim: framebuffer cache full");
+			warned_fb_full = true;
+		}
+	}
+	return fb;
+}
+
+static void iron_shim_end_rendering(VkCommandBuffer cb) {
+	if (_vkCmdEndRendering != NULL) {
+		_vkCmdEndRendering(cb);
+		return;
+	}
+	if (_vkCmdEndRenderPass2KHR != NULL) {
+		VkSubpassEndInfo2 end_info = {};
+		end_info.sType             = VK_STRUCTURE_TYPE_SUBPASS_END_INFO_2;
+		_vkCmdEndRenderPass2KHR(cb, &end_info);
+		return;
+	}
+	iron_error("shim: no end-rendering entry point available");
+}
+
+static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo *info) {
+	if (_vkCmdBeginRendering != NULL) {
+		_vkCmdBeginRendering(cb, info);
+		return;
+	}
+
+	if (_vkCmdBeginRenderPass2KHR == NULL || _vkCreateRenderPass2KHR == NULL) {
+		iron_error("shim: begin-rendering PFNs missing");
+		return;
+	}
+	if (info->renderArea.extent.width == 0 || info->renderArea.extent.height == 0) {
+		iron_error("shim: zero render area %ux%u", info->renderArea.extent.width, info->renderArea.extent.height);
+		return;
+	}
+
+	struct iron_rp_key rp_key;
+	memset(&rp_key, 0, sizeof(rp_key));
+	struct iron_fb_key fb_key;
+	memset(&fb_key, 0, sizeof(fb_key));
+
+	rp_key.color_count = info->colorAttachmentCount > 8 ? 8 : info->colorAttachmentCount;
+
+	// Clear values are indexed by attachment number (colors first, then depth).
+	VkClearValue clears[9];
+	memset(clears, 0, sizeof(clears));
+	uint32_t clear_count = 0;
+
+	for (uint32_t i = 0; i < rp_key.color_count; ++i) {
+		const VkRenderingAttachmentInfo *att = &info->pColorAttachments[i];
+		VkFormat fmt = iron_view_fmt_get(att->imageView);
+		if (fmt == VK_FORMAT_UNDEFINED) {
+			iron_error("shim: no format recorded for color view %u", i);
+			return;
+		}
+		rp_key.color_formats[i] = fmt;
+		if (att->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) {
+			rp_key.loads |= (1u << i);
+			clears[i].color = att->clearValue.color;
+			if (i + 1 > clear_count) {
+				clear_count = i + 1;
+			}
+		}
+		fb_key.colors[i] = att->imageView;
+	}
+
+	if (info->pDepthAttachment != NULL && info->pDepthAttachment->imageView != VK_NULL_HANDLE) {
+		const VkRenderingAttachmentInfo *att = info->pDepthAttachment;
+		VkFormat fmt = iron_view_fmt_get(att->imageView);
+		if (fmt == VK_FORMAT_UNDEFINED) {
+			iron_error("shim: no format recorded for depth view");
+			return;
+		}
+		rp_key.depth_format = fmt;
+		if (att->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR) {
+			rp_key.loads |= 0x80000000u;
+			clears[rp_key.color_count].depthStencil = att->clearValue.depthStencil;
+			clear_count                             = rp_key.color_count + 1;
+		}
+		fb_key.depth = att->imageView;
+	}
+
+	VkRenderPass rp = iron_shim_get_render_pass(&rp_key);
+	if (rp == VK_NULL_HANDLE) {
+		return;
+	}
+	fb_key.rp     = rp;
+	fb_key.width  = info->renderArea.extent.width;
+	fb_key.height = info->renderArea.extent.height;
+
+	VkFramebuffer fb = iron_shim_get_framebuffer(&fb_key);
+	if (fb == VK_NULL_HANDLE) {
+		return;
+	}
+
+	VkRenderPassBeginInfo rpbi = {};
+	rpbi.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rpbi.renderPass      = rp;
+	rpbi.framebuffer     = fb;
+	rpbi.renderArea      = info->renderArea;
+	rpbi.clearValueCount = clear_count;
+	rpbi.pClearValues    = clear_count > 0 ? clears : NULL;
+
+	VkSubpassBeginInfo2 begin_info = {};
+	begin_info.sType               = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_2;
+	begin_info.contents            = VK_SUBPASS_CONTENTS_INLINE;
+
+	_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
+}
 static VkImage            window_images[GPU_FRAMEBUFFER_COUNT];
 static bool               framebuffer_acquired = false;
 static bool               framebuffer_undefined[GPU_FRAMEBUFFER_COUNT];
@@ -292,7 +602,7 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 
 static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkImageLayout old_layout, VkImageLayout new_layout) {
 	if (gpu_in_use) {
-		_vkCmdEndRendering(command_buffer);
+		iron_shim_end_rendering(command_buffer);
 	}
 
 	VkImageMemoryBarrier barrier = {
@@ -322,7 +632,7 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	if (gpu_in_use) {
-		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	}
 }
 
@@ -492,6 +802,7 @@ void gpu_render_target_init2(gpu_texture_t *target, uint32_t width, uint32_t hei
 	                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	color_image_view.image = target->impl.image;
 	vkCreateImageView(device, &color_image_view, NULL, &target->impl.view);
+	iron_view_fmt_record(target->impl.view, color_image_view.format);
 }
 
 static uint32_t umin(uint32_t a, uint32_t b) {
@@ -612,6 +923,7 @@ static void create_swapchain() {
 		    .image                           = window_images[i],
 		};
 		vkCreateImageView(device, &color_attachment_view, NULL, &framebuffers[i].impl.view);
+		iron_view_fmt_record(framebuffers[i].impl.view, color_attachment_view.format);
 		// gpu_texture_destroy_internal(&framebuffers[i]);
 		// gpu_render_target_init2(&framebuffers[i], iron_window_width(), iron_window_height(), GPU_TEXTURE_FORMAT_RGBA32, i);
 		framebuffers[i].width  = image_extent.width;
@@ -661,6 +973,7 @@ static void create_swapchain() {
 		    .viewType                        = VK_IMAGE_VIEW_TYPE_2D,
 		};
 		vkCreateImageView(device, &view, NULL, &framebuffer_depth.impl.view);
+		iron_view_fmt_record(framebuffer_depth.impl.view, view.format);
 	}
 }
 
@@ -849,15 +1162,50 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	VkExtensionProperties *device_extensions = (VkExtensionProperties *)malloc(sizeof(VkExtensionProperties) * device_extension_count);
 	vkEnumerateDeviceExtensionProperties(gpu, NULL, &device_extension_count, device_extensions);
 
+	// --- Dynamic rendering compat: native path vs renderpass2 shim ---
+	VkPhysicalDeviceProperties shim_props;
+	vkGetPhysicalDeviceProperties(gpu, &shim_props);
+	bool vulkan_13_native = (shim_props.apiVersion >= VK_API_VERSION_1_3);
+	bool has_dyn_rend_ext = false;
+	bool has_renderpass2  = false;
+	bool has_ds_resolve   = false;
+	bool has_multiview    = false;
+	bool has_maint2       = false;
+	for (uint32_t i = 0; i < device_extension_count; ++i) {
+		const char *n = device_extensions[i].extensionName;
+		if (strcmp(n, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
+			has_dyn_rend_ext = true;
+		}
+		if (strcmp(n, VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME) == 0) {
+			has_renderpass2 = true;
+		}
+		if (strcmp(n, VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME) == 0) {
+			has_ds_resolve = true;
+		}
+		if (strcmp(n, VK_KHR_MULTIVIEW_EXTENSION_NAME) == 0) {
+			has_multiview = true;
+		}
+		if (strcmp(n, VK_KHR_MAINTENANCE2_EXTENSION_NAME) == 0) {
+			has_maint2 = true;
+		}
+	}
+	gpu_vulkan_renderpass_shim = !(vulkan_13_native || has_dyn_rend_ext);
+	iron_log("Vulkan compat: api=0x%x native13=%d dynRendExt=%d -> shim=%d", shim_props.apiVersion, vulkan_13_native ? 1 : 0,
+	         has_dyn_rend_ext ? 1 : 0, gpu_vulkan_renderpass_shim ? 1 : 0);
+	if (gpu_vulkan_renderpass_shim) {
+		if (!has_renderpass2 || !has_ds_resolve || !has_multiview || !has_maint2) {
+			iron_error("Shim requires create_renderpass2(%d) depth_stencil_resolve(%d) multiview(%d) maintenance2(%d)", has_renderpass2 ? 1 : 0,
+			           has_ds_resolve ? 1 : 0, has_multiview ? 1 : 0, has_maint2 ? 1 : 0);
+			exit(1);
+		}
+		wanted_device_extensions[wanted_device_extension_count++] = VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME;
+		wanted_device_extensions[wanted_device_extension_count++] = VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME;
+		wanted_device_extensions[wanted_device_extension_count++] = VK_KHR_MULTIVIEW_EXTENSION_NAME;
+		wanted_device_extensions[wanted_device_extension_count++] = VK_KHR_MAINTENANCE2_EXTENSION_NAME;
+	}
+
 	bool missing_device_extensions = check_extensions(wanted_device_extensions, wanted_device_extension_count, device_extensions, device_extension_count);
 	free(device_extensions);
-{
-    const VkPhysicalDeviceProperties &props = properties;
-    gpu_vulkan_renderpass_shim = (props.apiVersion < VK_API_VERSION_1_3);
-    if (gpu_vulkan_renderpass_shim) {
-        gpu_vulkan_depth_format = 0;
-    }
-}
 
 	if (missing_device_extensions) {
 		exit(1);
@@ -913,26 +1261,6 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	}
 	free(supports_present);
 
-{
-    const VkPhysicalDeviceProperties &props = properties;
-    bool vulkan_13 = (props.apiVersion >= VK_API_VERSION_1_3);
-    bool has_dyn_rend_ext = false;
-    for (int i = 0; i < wanted_device_extension_count; i++) {
-        if (strcmp(wanted_device_extensions[i], VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
-            has_dyn_rend_ext = true;
-            break;
-        }
-    }
-    gpu_vulkan_renderpass_shim = !(vulkan_13 || has_dyn_rend_ext);
-    if (gpu_vulkan_renderpass_shim) {
-        for (int i = 0; i < wanted_device_extension_count; i++) {
-            if (strcmp(wanted_device_extensions[i], VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME) == 0) {
-                _vkCreateRenderPass2KHR = (PFN_vkCreateRenderPass2KHR)vkGetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
-            }
-        }
-        gpu_vulkan_depth_format = 0;
-    }
-}
 	if (graphics_queue_node_index == UINT32_MAX || present_queue_node_index == UINT32_MAX) {
 		iron_error("Graphics or present queue not found");
 	}
@@ -958,9 +1286,11 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 		VkPhysicalDeviceFeatures enabled_features = {};
 		enabled_features.independentBlend         = VK_TRUE;
 
+		// On the shim path the driver is pre-1.3 without VK_KHR_dynamic_rendering;
+		// passing the feature struct would make vkCreateDevice fail.
 		VkDeviceCreateInfo deviceinfo = {
 		    .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		    .pNext                   = &dynamic_rendering_features,
+		    .pNext                   = gpu_vulkan_renderpass_shim ? NULL : (void *)&dynamic_rendering_features,
 		    .queueCreateInfoCount    = 1,
 		    .pQueueCreateInfos       = &queue,
 		    .enabledLayerCount       = 0,
@@ -993,8 +1323,23 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	}
 
 	vkGetDeviceQueue(device, graphics_queue_node_index, 0, &queue);
-	_vkCmdBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(device, "vkCmdBeginRendering");
-	_vkCmdEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(device, "vkCmdEndRendering");
+	if (gpu_vulkan_renderpass_shim) {
+		_vkCmdBeginRendering = NULL;
+		_vkCmdEndRendering   = NULL;
+		_vkCreateRenderPass2KHR   = (PFN_vkCreateRenderPass2KHR)vkGetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
+		_vkCmdBeginRenderPass2KHR = (PFN_vkCmdBeginRenderPass2KHR)vkGetDeviceProcAddr(device, "vkCmdBeginRenderPass2KHR");
+		_vkCmdEndRenderPass2KHR   = (PFN_vkCmdEndRenderPass2KHR)vkGetDeviceProcAddr(device, "vkCmdEndRenderPass2KHR");
+		iron_log("Shim PFNs: createRP2=%p beginRP2=%p endRP2=%p", (void *)_vkCreateRenderPass2KHR, (void *)_vkCmdBeginRenderPass2KHR,
+		         (void *)_vkCmdEndRenderPass2KHR);
+		if (_vkCreateRenderPass2KHR == NULL || _vkCmdBeginRenderPass2KHR == NULL || _vkCmdEndRenderPass2KHR == NULL) {
+			iron_error("shim: renderpass2 entry points not resolvable");
+			exit(1);
+		}
+	}
+	else {
+		_vkCmdBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(device, "vkCmdBeginRendering");
+		_vkCmdEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(device, "vkCmdEndRendering");
+	}
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memory_properties);
 	VkCommandPoolCreateInfo cmd_pool_info = {
 	    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1138,7 +1483,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	    .pColorAttachments    = current_color_attachment_infos,
 	    .pDepthAttachment     = current_depth_buffer == NULL ? VK_NULL_HANDLE : &current_depth_attachment_info,
 	};
-	_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+	iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 
 	for (size_t i = 0; i < current_render_targets_count; ++i) {
 		current_color_attachment_infos[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1152,7 +1497,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 }
 
 void gpu_end_internal() {
-	_vkCmdEndRendering(command_buffer);
+	iron_shim_end_rendering(command_buffer);
 
 	for (int i = 0; i < current_render_targets_count; ++i) {
 		gpu_barrier(current_render_targets[i],
@@ -1167,7 +1512,7 @@ void gpu_end_internal() {
 
 void gpu_execute_and_wait() {
 	if (gpu_in_use) {
-		_vkCmdEndRendering(command_buffer);
+		iron_shim_end_rendering(command_buffer);
 	}
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
@@ -1195,7 +1540,7 @@ void gpu_execute_and_wait() {
 	vkBeginCommandBuffer(command_buffer, &begin_info);
 
 	if (gpu_in_use) {
-		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline->impl.pipeline);
 		VkBuffer     buffers[1];
 		VkDeviceSize offsets[1];
@@ -1365,11 +1710,11 @@ void gpu_get_render_target_pixels(gpu_texture_t *render_target, uint8_t *data) {
 	region.imageExtent.height              = (uint32_t)render_target->height;
 	region.imageExtent.depth               = 1;
 	if (gpu_in_use) {
-		_vkCmdEndRendering(command_buffer);
+		iron_shim_end_rendering(command_buffer);
 	}
 	vkCmdCopyImageToBuffer(command_buffer, render_target->impl.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buffer, 1, &region);
 	if (gpu_in_use) {
-		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	}
 
 	set_image_layout(render_target->impl.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1759,7 +2104,7 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	vkBindImageMemory(device, texture->impl.image, texture->impl.mem, 0);
 
 	if (gpu_in_use) {
-		_vkCmdEndRendering(command_buffer);
+		iron_shim_end_rendering(command_buffer);
 	}
 
 	VkImageMemoryBarrier barrier = {
@@ -1815,9 +2160,10 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	    .subresourceRange.layerCount     = 1,
 	};
 	vkCreateImageView(device, &view_info, NULL, &texture->impl.view);
+	iron_view_fmt_record(texture->impl.view, view_info.format);
 
 	if (gpu_in_use) {
-		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	}
 
 	gpu_execute_and_wait(); ////
@@ -1892,7 +2238,7 @@ void _gpu_buffer_init(VkBuffer *buf, VkDeviceMemory *mem, uint32_t size, uint32_
 
 void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
 	if (gpu_in_use) {
-		_vkCmdEndRendering(command_buffer);
+		iron_shim_end_rendering(command_buffer);
 	}
 	VkBufferCopy copy_region = {
 	    .size = size,
@@ -1910,7 +2256,7 @@ void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
 	};
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &buf_barrier, 0, NULL);
 	if (gpu_in_use) {
-		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	}
 }
 
@@ -2767,6 +3113,7 @@ void gpu_raytrace_set_target(gpu_texture_t *_output) {
 		    .image                           = _output->impl.image,
 		};
 		vkCreateImageView(device, &image_view_info, NULL, &_output->impl.view);
+		iron_view_fmt_record(_output->impl.view, image_view_info.format);
 
 		set_image_layout(_output->impl.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
