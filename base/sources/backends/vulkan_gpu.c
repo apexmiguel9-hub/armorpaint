@@ -6,6 +6,11 @@
 #define VK_KHR_maintenance2 1
 #define VK_KHR_dynamic_rendering 1
 
+// Some NDK header sets drop the name macro for extensions promoted to core.
+#ifndef VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME
+#define VK_KHR_CREATE_RENDERPASS2_EXTENSION_NAME "VK_KHR_create_renderpass2"
+#endif
+
 #include "vulkan_gpu.h"
 #include <iron_gpu.h>
 #include <iron_math.h>
