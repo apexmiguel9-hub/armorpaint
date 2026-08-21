@@ -22,13 +22,22 @@ android {
     sourceSets.getByName("main") {
         java.setSrcDirs(listOf({javasources}))
     }
+    signingConfigs {
+        create("test") {
+            storeFile = file("armorpaint-test.keystore")
+            storePassword = "armorpaint"
+            keyAlias = "armorpaint"
+            keyPassword = "armorpaint"
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("test")
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("test")
             externalNativeBuild {
                 cmake {
                     // Native code must be optimized even in the debug APK
