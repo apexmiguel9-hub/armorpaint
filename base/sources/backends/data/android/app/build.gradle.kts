@@ -34,17 +34,22 @@ android {
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("test")
+            externalNativeBuild {
+                cmake {
+                    // Generated CMakeLists only injects project defines for
+                    // Debug/RelWithDebInfo -> must NOT use plain Release.
+                    arguments.addAll(listOf("-DCMAKE_BUILD_TYPE=RelWithDebInfo"))
+                }
+            }
         }
         debug {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("test")
             externalNativeBuild {
                 cmake {
-                    // Native code must be optimized even in the debug APK
-                    // (default Debug type compiles -O0 -> very slow on device).
-                    arguments.addAll(listOf("-DCMAKE_BUILD_TYPE=Release"))
-                    cppFlags.add("-O2")
-                    cFlags.add("-O2")
+                    // Optimized native code even in the debug APK
+                    // (plain Debug type compiles -O0 -> very slow on device).
+                    arguments.addAll(listOf("-DCMAKE_BUILD_TYPE=RelWithDebInfo"))
                 }
             }
         }
