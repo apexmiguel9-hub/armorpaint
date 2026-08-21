@@ -42,4 +42,10 @@ project.add_assets("assets/meshes/*", {destination : "data/meshes/{name}", noemb
 project.add_assets("assets/meshes/default/*", {destination : "data/meshes/{name}"}); // embed default mesh
 project.add_assets("assets/locale/*", {destination : "data/locale/{name}"});
 project.add_assets("assets/readme/readme.txt", {destination : "{name}"});
+
+if (platform == "android") {
+	// upstream default is 35 (Android 15), which makes Play Store report
+	// "not compatible" on older devices; allow Android 8+
+	project.target_options.android.minSdkVersion = 26;
+}
 return project;
