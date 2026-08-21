@@ -51,6 +51,12 @@ static bool               window_vsync;
 static VkSurfaceKHR       surface;
 static VkSurfaceFormatKHR surface_format;
 static VkSwapchainKHR     swapchain;
+// Vulkan 1.3 core entry points resolved at runtime: the Android NDK stub
+// libvulkan.so only exports them when targeting API 33+, but the driver
+// provides them via vkGetDeviceProcAddr on any API level that supports
+// VK_KHR_dynamic_rendering / Vulkan 1.3.
+static PFN_vkCmdBeginRendering _vkCmdBeginRendering;
+static PFN_vkCmdEndRendering   _vkCmdEndRendering;
 static VkImage            window_images[GPU_FRAMEBUFFER_COUNT];
 static bool               framebuffer_acquired = false;
 static bool               framebuffer_undefined[GPU_FRAMEBUFFER_COUNT];
@@ -263,7 +269,7 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 
 static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkImageLayout old_layout, VkImageLayout new_layout) {
 	if (gpu_in_use) {
-		vkCmdEndRendering(command_buffer);
+		_vkCmdEndRendering(command_buffer);
 	}
 
 	VkImageMemoryBarrier barrier = {
@@ -293,7 +299,7 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	if (gpu_in_use) {
-		vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 	}
 }
 
@@ -937,6 +943,8 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	}
 
 	vkGetDeviceQueue(device, graphics_queue_node_index, 0, &queue);
+	_vkCmdBeginRendering = (PFN_vkCmdBeginRendering)vkGetDeviceProcAddr(device, "vkCmdBeginRendering");
+	_vkCmdEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(device, "vkCmdEndRendering");
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memory_properties);
 	VkCommandPoolCreateInfo cmd_pool_info = {
 	    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1080,7 +1088,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	    .pColorAttachments    = current_color_attachment_infos,
 	    .pDepthAttachment     = current_depth_buffer == NULL ? VK_NULL_HANDLE : &current_depth_attachment_info,
 	};
-	vkCmdBeginRendering(command_buffer, &current_rendering_info);
+	_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 
 	for (size_t i = 0; i < current_render_targets_count; ++i) {
 		current_color_attachment_infos[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -1094,7 +1102,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 }
 
 void gpu_end_internal() {
-	vkCmdEndRendering(command_buffer);
+	_vkCmdEndRendering(command_buffer);
 
 	for (int i = 0; i < current_render_targets_count; ++i) {
 		gpu_barrier(current_render_targets[i],
@@ -1109,7 +1117,7 @@ void gpu_end_internal() {
 
 void gpu_execute_and_wait() {
 	if (gpu_in_use) {
-		vkCmdEndRendering(command_buffer);
+		_vkCmdEndRendering(command_buffer);
 	}
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
@@ -1137,7 +1145,7 @@ void gpu_execute_and_wait() {
 	vkBeginCommandBuffer(command_buffer, &begin_info);
 
 	if (gpu_in_use) {
-		vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline->impl.pipeline);
 		VkBuffer     buffers[1];
 		VkDeviceSize offsets[1];
@@ -1307,11 +1315,11 @@ void gpu_get_render_target_pixels(gpu_texture_t *render_target, uint8_t *data) {
 	region.imageExtent.height              = (uint32_t)render_target->height;
 	region.imageExtent.depth               = 1;
 	if (gpu_in_use) {
-		vkCmdEndRendering(command_buffer);
+		_vkCmdEndRendering(command_buffer);
 	}
 	vkCmdCopyImageToBuffer(command_buffer, render_target->impl.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buffer, 1, &region);
 	if (gpu_in_use) {
-		vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 	}
 
 	set_image_layout(render_target->impl.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1701,7 +1709,7 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	vkBindImageMemory(device, texture->impl.image, texture->impl.mem, 0);
 
 	if (gpu_in_use) {
-		vkCmdEndRendering(command_buffer);
+		_vkCmdEndRendering(command_buffer);
 	}
 
 	VkImageMemoryBarrier barrier = {
@@ -1759,7 +1767,7 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	vkCreateImageView(device, &view_info, NULL, &texture->impl.view);
 
 	if (gpu_in_use) {
-		vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 	}
 
 	gpu_execute_and_wait(); ////
@@ -1834,7 +1842,7 @@ void _gpu_buffer_init(VkBuffer *buf, VkDeviceMemory *mem, uint32_t size, uint32_
 
 void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
 	if (gpu_in_use) {
-		vkCmdEndRendering(command_buffer);
+		_vkCmdEndRendering(command_buffer);
 	}
 	VkBufferCopy copy_region = {
 	    .size = size,
@@ -1852,7 +1860,7 @@ void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
 	};
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &buf_barrier, 0, NULL);
 	if (gpu_in_use) {
-		vkCmdBeginRendering(command_buffer, &current_rendering_info);
+		_vkCmdBeginRendering(command_buffer, &current_rendering_info);
 	}
 }
 
