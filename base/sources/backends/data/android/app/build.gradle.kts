@@ -29,6 +29,15 @@ android {
         }
         debug {
             isMinifyEnabled = false
+            externalNativeBuild {
+                cmake {
+                    // Native code must be optimized even in the debug APK
+                    // (default Debug type compiles -O0 -> very slow on device).
+                    arguments.addAll(listOf("-DCMAKE_BUILD_TYPE=Release"))
+                    cppFlags.add("-O2")
+                    cFlags.add("-O2")
+                }
+            }
         }
     }
     compileOptions {
