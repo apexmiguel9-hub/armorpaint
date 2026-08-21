@@ -463,6 +463,7 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 	}
 }
 static VkImage            window_images[GPU_FRAMEBUFFER_COUNT];
+static uint32_t           window_image_count = GPU_FRAMEBUFFER_COUNT;
 static bool               framebuffer_acquired = false;
 static bool               framebuffer_undefined[GPU_FRAMEBUFFER_COUNT];
 static bool               framebuffer_wait_pending = false;
@@ -1008,9 +1009,15 @@ static void create_swapchain() {
 		vkDestroySwapchainKHR(device, old_swapchain, NULL);
 	}
 
-	uint32_t framebuffer_count = GPU_FRAMEBUFFER_COUNT;
-	// vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, NULL);
-	vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, window_images);
+	uint32_t raw_image_count = 0;
+	vkGetSwapchainImagesKHR(device, swapchain, &raw_image_count, NULL);
+	uint32_t framebuffer_count = raw_image_count < GPU_FRAMEBUFFER_COUNT ? raw_image_count : GPU_FRAMEBUFFER_COUNT;
+	VkResult img_res           = vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, window_images);
+	if (framebuffer_count > GPU_FRAMEBUFFER_COUNT) {
+		framebuffer_count = GPU_FRAMEBUFFER_COUNT;
+	}
+	window_image_count = framebuffer_count;
+	iron_log("shim: swapchain images: driver=%u usable=%u res=%d", raw_image_count, framebuffer_count, (int)img_res);
 
 	for (uint32_t i = 0; i < framebuffer_count; i++) {
 		framebuffers[i].impl.image = window_images[i];
@@ -1092,6 +1099,15 @@ static void acquire_next_image() {
 	VkResult err = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, framebuffer_available_semaphore, VK_NULL_HANDLE, (uint32_t *)&framebuffer_index);
 	if (err == VK_ERROR_SURFACE_LOST_KHR || err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR || surface_destroyed) {
 		surface_destroyed        = surface_destroyed || (err == VK_ERROR_SURFACE_LOST_KHR);
+		framebuffer_wait_pending = false;
+		gpu_in_use               = false;
+		create_swapchain();
+		gpu_in_use = true;
+		acquire_next_image();
+		return;
+	}
+	if ((uint32_t)framebuffer_index >= window_image_count) {
+		iron_log("shim: acquire idx=%u >= usable=%u -> recreate", framebuffer_index, window_image_count);
 		framebuffer_wait_pending = false;
 		gpu_in_use               = false;
 		create_swapchain();
@@ -1807,7 +1823,7 @@ void gpu_present_internal() {
 
 	// acquire_next_image(); // Breaks window resize
 	framebuffer_acquired = false;
-	framebuffer_index    = (framebuffer_index + 1) % GPU_FRAMEBUFFER_COUNT;
+	framebuffer_index    = (framebuffer_index + 1) % window_image_count;
 
 	gpu_cleanup_internal();
 }
