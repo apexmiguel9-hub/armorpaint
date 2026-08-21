@@ -39,7 +39,9 @@ void config_load() {
 		}
 	}
 #ifdef IRON_ANDROID
-	g_config->window_vsync = false; // Saved configs from older builds may force FIFO; MAILBOX is correct on Android
+	if (g_config != NULL) {
+		g_config->window_vsync = false; // Saved configs from older builds may force FIFO; MAILBOX is correct on Android
+	}
 #endif
 }
 
