@@ -642,6 +642,23 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 		return;
 	}
 
+	// OBL diag: identify exact target before the driver call
+	{
+		static int gbd_count = 0;
+		int       win_idx    = -1;
+		for (int i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
+			if (render_target == &framebuffers[i]) {
+				win_idx = i;
+				break;
+			}
+		}
+		if (gbd_count < 60 || win_idx >= 0) {
+			++gbd_count;
+			iron_log("shim: barrier> tgt=%p img=%p fmt=%d %d->%d win=%d", (void *)render_target, (void *)render_target->impl.image,
+			         (int)render_target->format, (int)render_target->state, (int)state_after, win_idx);
+		}
+	}
+
 	VkImageLayout old_layout = convert_texture_state(render_target->state);
 	for (int i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
 		if (framebuffer_undefined[i] && render_target == &framebuffers[i]) {
@@ -984,6 +1001,8 @@ static void create_swapchain() {
 	vkCreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
 
 	if (old_swapchain != VK_NULL_HANDLE) {
+		iron_log("shim: recreate: acquired=%d wait_pending=%d in_use=%d fb_index=%u", framebuffer_acquired ? 1 : 0,
+		         framebuffer_wait_pending ? 1 : 0, gpu_in_use ? 1 : 0, framebuffer_index);
 		gpu_execute_and_wait();
 		vkQueueWaitIdle(queue);
 		vkDestroySwapchainKHR(device, old_swapchain, NULL);
@@ -1079,6 +1098,13 @@ static void acquire_next_image() {
 		gpu_in_use = true;
 		acquire_next_image();
 		return;
+	}
+	{
+		static int acq_count = 0;
+		if (acq_count < 30) {
+			++acq_count;
+			iron_log("shim: acquire idx=%u err=%d", framebuffer_index, (int)err);
+		}
 	}
 	framebuffer_wait_pending = true;
 }
@@ -1628,6 +1654,11 @@ void gpu_end_internal() {
 
 void gpu_execute_and_wait() {
 	if (gpu_in_use) {
+		static int ewm_count = 0;
+		if (ewm_count < 10) {
+			++ewm_count;
+			iron_log("shim: execute_and_wait MID-FRAME (in_use)");
+		}
 		iron_shim_end_rendering(command_buffer);
 	}
 	vkEndCommandBuffer(command_buffer);
