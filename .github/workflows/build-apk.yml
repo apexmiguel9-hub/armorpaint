@@ -28,6 +28,9 @@ jobs:
           cd paint
           ../base/make --target android
 
+      - name: Restore gradle-wrapper.jar (amake corrupts binary copies)
+        run: cp base/sources/backends/data/android/gradle/wrapper/gradle-wrapper.jar paint/build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar
+
       - name: Build APK (debug, installable)
         run: |
           cd paint/build/ArmorPaint
