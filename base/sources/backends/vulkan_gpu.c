@@ -1998,7 +1998,28 @@ void gpu_pipeline_compile(gpu_pipeline_t *pipeline) {
 	    .pColorAttachmentFormats = color_attachment_formats,
 	    .depthAttachmentFormat   = pipeline->depth_attachment_bits > 0 ? VK_FORMAT_D32_SFLOAT : VK_FORMAT_UNDEFINED,
 	};
-	pipeline_info.pNext = &rendering_info;
+	if (gpu_vulkan_renderpass_shim) {
+		// Pre-1.3 driver: VkPipelineRenderingCreateInfo is unknown and a NULL
+		// render pass crashes Mali. Build a classic compatible render pass
+		// from the same attachment formats instead.
+		struct iron_rp_key pkey;
+		memset(&pkey, 0, sizeof(pkey));
+		pkey.color_count = pipeline->color_attachment_count > 8 ? 8 : pipeline->color_attachment_count;
+		for (int i = 0; i < pkey.color_count; ++i) {
+			pkey.color_formats[i] = color_attachment_formats[i];
+		}
+		pkey.depth_format = rendering_info.depthAttachmentFormat;
+		VkRenderPass compat_rp = iron_shim_get_render_pass(&pkey);
+		if (compat_rp == VK_NULL_HANDLE) {
+			iron_error("shim: no compatible render pass for pipeline");
+			return;
+		}
+		pipeline_info.renderPass = compat_rp;
+		pipeline_info.pNext      = NULL;
+	}
+	else {
+		pipeline_info.pNext = &rendering_info;
+	}
 
 	VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->impl.pipeline);
 	vkDestroyShaderModule(device, frag_shader_module, NULL);
