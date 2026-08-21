@@ -200,7 +200,7 @@ void config_init() {
 #endif
 		g_config->rp_supersample = 1.0;
 #ifdef IRON_ANDROID
-		g_config->rp_supersample = 0.25; // EXPERIMENT: quarter-res render targets to isolate fill-rate cost
+		g_config->rp_supersample = 0.5; // Half-res render targets: Mali G52 is bandwidth-bound with full-res RGBA64 passes
 		if (sys_display_width() >= 3200 && sys_display_height() >= 2136) {
 			g_config->window_scale = 2.5;
 		}

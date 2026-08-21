@@ -176,6 +176,14 @@ static int  perf_frame_ends     = 0;
 static int  perf_frame_draws    = 0;
 static long perf_frame_begin_us = 0;
 
+// Per-pass GPU timestamp profiling (shim renderpass path).
+#define PERF_TS_MAX   128
+static VkQueryPool perf_ts_pool     = VK_NULL_HANDLE;
+static uint32_t    perf_ts_count    = 0;
+static float       perf_ts_period   = 1.0f;
+static bool        perf_ts_ready    = false;
+static int         perf_ts_logcount = 0;
+
 static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
 	for (int i = 0; i < iron_rp_cache_count; ++i) {
 		if (memcmp(&iron_rp_cache[i].key, key, sizeof(*key)) == 0) {
@@ -338,6 +346,9 @@ static void iron_shim_end_rendering(VkCommandBuffer cb) {
 			iron_log("shim: end #%d -> CmdEndRenderPass2", shim_end_log_count);
 		}
 		_vkCmdEndRenderPass2KHR(cb, &end_info);
+		if (perf_ts_ready && perf_ts_count + 1 <= PERF_TS_MAX) {
+			vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, perf_ts_pool, perf_ts_count++);
+		}
 		if (do_log) {
 			iron_log("shim: end #%d returned OK", shim_end_log_count);
 			++shim_end_log_count;
@@ -440,6 +451,9 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 		if (do_log) {
 			iron_log("shim: begin #%d colors=%u depth=%d clearCount=%u area=%ux%u -> CmdBeginRenderPass2", shim_begin_log_count, rp_key.color_count,
 			         rp_key.depth_format != VK_FORMAT_UNDEFINED ? 1 : 0, clear_count, fb_key.width, fb_key.height);
+		}
+		if (perf_ts_ready && perf_ts_count + 2 <= PERF_TS_MAX) {
+			vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, perf_ts_pool, perf_ts_count++);
 		}
 		_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
 		if (do_log) {
@@ -1419,6 +1433,24 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 		_vkCmdEndRendering   = (PFN_vkCmdEndRendering)vkGetDeviceProcAddr(device, "vkCmdEndRendering");
 	}
 	vkGetPhysicalDeviceMemoryProperties(gpu, &memory_properties);
+
+	// Timestamp query pool for per-pass GPU profiling
+	{
+		VkPhysicalDeviceProperties props;
+		vkGetPhysicalDeviceProperties(gpu, &props);
+		perf_ts_period = props.limits.timestampPeriod;
+		if (props.limits.timestampComputeAndGraphics) {
+			VkQueryPoolCreateInfo qpi = {0};
+			qpi.sType                 = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+			qpi.queryType             = VK_QUERY_TYPE_TIMESTAMP;
+			qpi.queryCount            = PERF_TS_MAX;
+			if (vkCreateQueryPool(device, &qpi, NULL, &perf_ts_pool) == VK_SUCCESS) {
+				perf_ts_ready = true;
+				iron_log("PERF: timestamp profiling enabled (period=%.1f ns/tick)", perf_ts_period);
+			}
+		}
+	}
+
 	VkCommandPoolCreateInfo cmd_pool_info = {
 	    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 	    .queueFamilyIndex = graphics_queue_node_index,
@@ -1684,6 +1716,45 @@ void gpu_present_internal() {
 	vkQueueSubmit(queue, 1, &submit_info, fence);
 	vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 
+	// Per-pass GPU profile: GPU is idle now, results are final
+	if (perf_ts_ready && perf_ts_count >= 2) {
+		uint64_t ts[PERF_TS_MAX];
+		if (vkGetQueryPoolResults(device, perf_ts_pool, 0, perf_ts_count, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+			double total_ms = (double)(ts[perf_ts_count - 1] - ts[0]) * perf_ts_period / 1e6;
+			// Pair up: (begin_i, end_i) written around each renderpass
+			int    pairs    = perf_ts_count / 2;
+			double dur[64];
+			int    idx[64];
+			if (pairs > 64) {
+				pairs = 64;
+			}
+			for (int i = 0; i < pairs; ++i) {
+				dur[i] = (double)(ts[i * 2 + 1] - ts[i * 2]) * perf_ts_period / 1e6;
+				idx[i] = i;
+			}
+			for (int i = 0; i < pairs; ++i) { // selection sort top-first
+				int mx = i;
+				for (int j = i + 1; j < pairs; ++j) {
+					if (dur[idx[j]] > dur[idx[mx]]) {
+						mx = j;
+					}
+				}
+				int t = idx[i];
+				idx[i] = idx[mx], idx[mx] = t;
+			}
+			if (perf_ts_logcount < 8 || (perf_ts_logcount % 60) == 0) {
+				char line[256];
+				int  off = snprintf(line, sizeof(line), "PERF: gpu passes=%d total=%.1fms top:", pairs, total_ms);
+				for (int i = 0; i < pairs && i < 5 && off < 220; ++i) {
+					off += snprintf(line + off, sizeof(line) - off, " #%d=%.1f", idx[i], dur[idx[i]]);
+				}
+				iron_log("%s", line);
+			}
+			++perf_ts_logcount;
+		}
+	}
+	perf_ts_count = 0;
+
 	VkPresentInfoKHR present = {
 	    .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 	    .swapchainCount     = 1,
@@ -1699,6 +1770,9 @@ void gpu_present_internal() {
 	    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	};
 	vkBeginCommandBuffer(command_buffer, &begin_info);
+	if (perf_ts_ready) {
+		vkCmdResetQueryPool(command_buffer, perf_ts_pool, 0, PERF_TS_MAX);
+	}
 
 	// acquire_next_image(); // Breaks window resize
 	framebuffer_acquired = false;

@@ -11,6 +11,7 @@
 #include <android/log.h>
 #endif
 #include "iron_file.h"
+#include "iron_sys.h"
 #include <memory.h>
 #include <stddef.h>
 
