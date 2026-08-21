@@ -2654,6 +2654,8 @@ gpu_texture_t *render_path_create_image(render_target_t *t) {
 	if (height < 1) {
 		height = 1;
 	}
+	iron_log("PERF: render target '%s' created at %dx%d (scale=%.2f, fmt=%s)", t->name, width, height, t->scale,
+	         t->format != NULL ? t->format : "RGBA32");
 	return gpu_create_render_target(width, height, t->format != NULL ? render_path_get_tex_format(t->format) : GPU_TEXTURE_FORMAT_RGBA32);
 }
 

@@ -197,9 +197,9 @@ void config_init() {
 #endif
 		g_config->rp_supersample = 1.0;
 #ifdef IRON_ANDROID
+		g_config->rp_supersample = 0.5; // Half-res render targets: Mali G52 is bandwidth-bound with full-res RGBA64 passes
 		if (sys_display_width() >= 3200 && sys_display_height() >= 2136) {
-			g_config->window_scale   = 2.5;
-			g_config->rp_supersample = 0.5;
+			g_config->window_scale = 2.5;
 		}
 #endif
 		g_config->recent_projects = any_array_create_from_raw((void *[]){}, 0);
