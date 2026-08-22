@@ -117,7 +117,15 @@ void viewport_save_texture(gpu_texture_t *screenshot) {
 }
 
 void viewport_capture_screenshot() {
+#ifdef IRON_ANDROID
+	render_target_t *rt = any_map_get(render_path_render_targets, "buf"); // no TAA history swap on Android
+#else
+#ifdef IRON_ANDROID
+	render_target_t *rt = any_map_get(render_path_render_targets, "buf"); // no TAA history swap on Android
+#else
 	render_target_t *rt  = any_map_get(render_path_render_targets, "last");
+#endif
+#endif
 	gpu_texture_t   *tex = rt->_image;
 
 	gpu_texture_t *screenshot = gpu_create_render_target(tex->width, tex->height, GPU_TEXTURE_FORMAT_RGBA32);
@@ -131,7 +139,11 @@ void viewport_capture_screenshot() {
 }
 
 void viewport_capture_screenshot_to(gpu_texture_t *target, float x, float y, float w, float h) {
+#ifdef IRON_ANDROID
+	render_target_t *rt = any_map_get(render_path_render_targets, "buf"); // no TAA history swap on Android
+#else
 	render_target_t *rt  = any_map_get(render_path_render_targets, "last");
+#endif
 	gpu_texture_t   *tex = rt->_image;
 
 	// Crop the viewport texture to a square

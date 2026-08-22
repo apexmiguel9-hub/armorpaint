@@ -116,7 +116,11 @@ bool render_path_base_is_cached() {
 
 		if (g_context->ddirty > -12) {
 			render_path_set_target("", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
+#ifdef IRON_ANDROID
+			render_path_bind_target("buf", "tex"); // no TAA history swap on Android
+#else
 			render_path_bind_target("last", "tex");
+#endif
 			if (render_path_base_ssaa4()) {
 				render_path_draw_shader("Scene/supersample_resolve/supersample_resolveRGBA64");
 			}
@@ -323,14 +327,16 @@ void render_path_base_draw_deferred_light() {
 
 void render_path_base_draw_taa(char *bufa, char *bufb) {
 #ifdef IRON_ANDROID
-	// Mali G52 SIGSEGV inside driver during TAA pass with non-FIFO present modes; plain copy instead
-	render_path_set_target(bufb, NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
-	render_path_bind_target(bufa, "tex");
-	render_path_draw_shader("Scene/copy_pass/copyRGBA64_pass");
+	// No TAA history on Android: blit the composited buffer straight to screen.
+	// Readers of "last" use "buf" instead (always holds the latest composite).
 	render_path_set_target("", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
-	render_path_bind_target(bufb, "tex");
-	render_path_draw_shader("Scene/copy_pass/copy_pass");
-	render_path_base_swap_buf(bufa);
+	render_path_bind_target(bufa, "tex");
+	if (render_path_base_ssaa4()) {
+		render_path_draw_shader("Scene/supersample_resolve/supersample_resolveRGBA64");
+	}
+	else {
+		render_path_draw_shader("Scene/copy_pass/copy_pass");
+	}
 	return;
 #endif
 	render_path_set_target(bufb, NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);

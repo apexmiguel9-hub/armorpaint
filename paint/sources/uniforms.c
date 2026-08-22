@@ -498,7 +498,7 @@ gpu_texture_t *uniforms_ext_tex_link(object_t *object, material_data_t *mat, cha
 		}
 	}
 	if (string_equals(link, "_camera_texture")) {
-		render_target_t *rt = any_map_get(render_path_render_targets, "last");
+		render_target_t *rt = any_map_get(render_path_render_targets, IRON_ANDROID ? "buf" : "last");
 		return rt->_image;
 	}
 	if (string_equals(link, "_lut_tex")) {

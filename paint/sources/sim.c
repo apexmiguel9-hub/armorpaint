@@ -20,7 +20,7 @@ void sim_update() {
 		physics_world_update();
 		iron_delay_idle_sleep();
 		if (sim_record) {
-			render_target_t *rt     = any_map_get(render_path_render_targets, "last");
+			render_target_t *rt     = any_map_get(render_path_render_targets, IRON_ANDROID ? "buf" : "last");
 			buffer_t        *pixels = gpu_get_texture_pixels(rt->_image);
 #ifdef IRON_BGRA
 			buffer_bgra_swap(pixels);
@@ -40,7 +40,7 @@ void sim_play() {
 			return;
 		}
 		char            *path = string("%s/output.mp4", path_base_dir(g_project->_->filepath));
-		render_target_t *rt   = any_map_get(render_path_render_targets, "last");
+		render_target_t *rt   = any_map_get(render_path_render_targets, IRON_ANDROID ? "buf" : "last");
 		// iron_mp4_begin(path, rt._image.width, rt._image.height);
 	}
 

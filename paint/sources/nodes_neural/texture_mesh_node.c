@@ -46,7 +46,7 @@ static void texture_mesh_node_restore_camera() {
 
 static void texture_mesh_node_grab_view(i32 view_idx) {
 	char            *dir = neural_node_dir();
-	render_target_t *rt  = any_map_get(render_path_render_targets, "last");
+	render_target_t *rt  = any_map_get(render_path_render_targets, IRON_ANDROID ? "buf" : "last");
 	gpu_texture_t   *tex = rt->_image;
 
 	iron_write_png(string("%s%sinput_%d.png", dir, PATH_SEP, view_idx), buffer_half_to_u8(gpu_get_texture_pixels(tex)), tex->width, tex->height, 0);
