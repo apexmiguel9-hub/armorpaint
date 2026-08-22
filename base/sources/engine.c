@@ -2491,6 +2491,12 @@ void render_path_render_frame(void) {
 }
 
 void render_path_set_target(char *target, string_array_t *additional, char *depth_buffer, gpu_clear_t flags, i32 color, f32 depth) {
+	{
+		extern bool passlist_dump_frame;
+		if (passlist_dump_frame) {
+			iron_log("shim: SETTARGET %s", string_equals(target, "") ? "(screen)" : target);
+		}
+	}
 	if (_render_path_current_image != NULL) {
 		render_path_end();
 	}
