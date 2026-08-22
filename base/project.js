@@ -92,14 +92,23 @@ else if (platform == "ios") {
 else if (platform == "android") {
 	project.add_cfiles("sources/backends/android_system.*");
 	project.add_cfiles("sources/backends/posix_thread.*");
-	project.add_cfiles("sources/backends/vulkan_gpu.*");
+	if (graphics == "opengl") {
+		project.add_cfiles("../base/sources/backends/opengl/kinc/backend/graphics4/*.c");
+		project.add_define("IRON_OPENGL");
+		project.add_define("IRON_OPENGL_ES");
+		project.add_define("IRON_EGL");
+		project.add_lib("EGL");
+		project.add_lib("GLESv3");
+	} else {
+		project.add_cfiles("sources/backends/vulkan_gpu.*");
+		project.add_define("IRON_VULKAN");
+		project.add_define("VK_USE_PLATFORM_ANDROID_KHR");
+		project.add_lib("vulkan");
+	}
 	project.add_cfiles("sources/backends/android_file_dialog.c");
 	project.add_cfiles("sources/backends/android_net.c");
 	project.add_cfiles("sources/backends/android_native_app_glue.c");
 	project.add_define("IRON_ANDROID");
-	project.add_define("IRON_VULKAN");
-	project.add_define("VK_USE_PLATFORM_ANDROID_KHR");
-	project.add_lib("vulkan");
 	project.add_lib("log");
 	project.add_lib("android");
 	if (flags.with_audio) {
