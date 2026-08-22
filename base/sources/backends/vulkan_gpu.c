@@ -123,7 +123,30 @@ static void iron_view_fmt_record(VkImageView v, VkFormat f) {
 		++iron_view_fmt_count;
 	}
 	else {
-		iron_error("shim: view format map full");
+		// Ring buffer: overwrite oldest entry
+		static int iron_view_fmt_cursor = 0;
+		int        slot                 = iron_view_fmt_cursor % IRON_VIEW_FMT_MAX;
+		++iron_view_fmt_cursor;
+		iron_view_fmts[slot].view = v;
+		iron_view_fmts[slot].fmt  = f;
+		static bool warned_ring   = false;
+		if (!warned_ring) {
+			iron_error("shim: view format map full - ring buffer mode");
+			warned_ring = true;
+		}
+	}
+}
+
+static void iron_view_fmt_remove(VkImageView v) {
+	if (v == VK_NULL_HANDLE) {
+		return;
+	}
+	for (int i = 0; i < iron_view_fmt_count; ++i) {
+		if (iron_view_fmts[i].view == v) {
+			iron_view_fmts[i] = iron_view_fmts[iron_view_fmt_count - 1];
+			--iron_view_fmt_count;
+			return;
+		}
 	}
 }
 
@@ -1036,6 +1059,20 @@ static void create_swapchain() {
 		gpu_execute_and_wait();
 		vkQueueWaitIdle(queue);
 		vkDestroySwapchainKHR(device, old_swapchain, NULL);
+		// Destroy leaked old window views + purge their fmt-table entries
+		for (uint32_t i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
+			if (framebuffers[i].impl.view != VK_NULL_HANDLE) {
+				iron_view_fmt_remove(framebuffers[i].impl.view);
+				vkDestroyImageView(device, framebuffers[i].impl.view, NULL);
+				framebuffers[i].impl.view = VK_NULL_HANDLE;
+			}
+		}
+		if (framebuffer_depth.impl.view != VK_NULL_HANDLE) {
+			iron_view_fmt_remove(framebuffer_depth.impl.view);
+			vkDestroyImageView(device, framebuffer_depth.impl.view, NULL);
+			framebuffer_depth.impl.view = VK_NULL_HANDLE;
+			framebuffer_depth.impl.image = VK_NULL_HANDLE;
+		}
 	}
 
 	uint32_t raw_image_count = 0;
@@ -1127,6 +1164,7 @@ static void create_swapchain() {
 static void acquire_next_image() {
 	VkResult err = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, framebuffer_available_semaphore, VK_NULL_HANDLE, (uint32_t *)&framebuffer_index);
 	if (err == VK_ERROR_SURFACE_LOST_KHR || err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR || surface_destroyed) {
+		iron_log("shim: acquire failed err=%d -> recreate swapchain", (int)err);
 		surface_destroyed        = surface_destroyed || (err == VK_ERROR_SURFACE_LOST_KHR);
 		framebuffer_wait_pending = false;
 		gpu_in_use               = false;
@@ -2466,6 +2504,7 @@ void gpu_texture_destroy_internal(gpu_texture_t *target) {
 		vkFreeMemory(device, target->impl.mem, NULL);
 	}
 	if (target->impl.view != NULL) {
+		iron_view_fmt_remove(target->impl.view);
 		vkDestroyImageView(device, target->impl.view, NULL);
 	}
 }
