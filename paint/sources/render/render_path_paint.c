@@ -2,6 +2,7 @@
 #include "../global.h"
 
 bool             render_path_paint_dilated               = true;
+static bool      render_path_paint_dilation_pending      = false;
 mesh_object_t   *render_path_paint_painto                = NULL;
 mesh_object_t   *render_path_paint_planeo                = NULL;
 u8_array_t      *render_path_paint_visibles              = NULL;
@@ -842,6 +843,13 @@ void render_path_paint_end() {
 	}
 
 	if (g_context->pdirty > 0) {
+		if (g_context->pdirty == 1 && render_path_paint_dilation_pending) {
+			// Final frame of stroke: flush deferred dilation first so
+			// linked layers copy the finished result
+			render_path_paint_dilation_pending = false;
+			render_path_paint_dilate(true, true);
+			render_path_paint_dilated = true; // begin() pre-dilation already covered
+		}
 		layers_update_linked_layers();
 	}
 
@@ -961,7 +969,14 @@ void render_path_paint_draw() {
 			}
 		}
 		else { // Paint
-			render_path_paint_commands_paint(true);
+			if (g_config->dilate_radius > 0 && !g_context->paint2d) {
+				// Defer dilation to stroke end (saves 2 fullscreen passes per frame)
+				render_path_paint_dilation_pending = true;
+				render_path_paint_commands_paint(false);
+			}
+			else {
+				render_path_paint_commands_paint(true);
+			}
 		}
 	}
 
