@@ -839,19 +839,17 @@ void render_path_paint_end() {
 	g_context->last_paint_vec_y = g_context->paint_vec.y;
 
 	if (!render_path_paint_paint_enabled()) {
-		render_path_paint_dilation_pending = false;
 		return;
 	}
 
-	bool flush_dilation = render_path_paint_dilation_pending && !mouse_down("left");
-	if (flush_dilation) {
-		// Stroke truly ended (finger lifted): flush deferred dilation
-		render_path_paint_dilation_pending = false;
-		render_path_paint_dilate(true, true);
-		render_path_paint_dilated = true;
-	}
-
-	if (g_context->pdirty > 0 || flush_dilation) {
+	if (g_context->pdirty > 0) {
+		if (g_context->pdirty == 1 && render_path_paint_dilation_pending) {
+			// Final frame of stroke: flush deferred dilation first so
+			// linked layers copy the finished result
+			render_path_paint_dilation_pending = false;
+			render_path_paint_dilate(true, true);
+			render_path_paint_dilated = true; // begin() pre-dilation already covered
+		}
 		layers_update_linked_layers();
 	}
 
