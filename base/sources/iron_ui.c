@@ -1864,9 +1864,12 @@ void ui_end_window() {
 
 	// Queue window texture blit (flushed together in ui_end)
 	if (_ui_blit_tex == NULL) {
-		_ui_blit_tex = any_array_create_from_raw((void *[]){}, 0);
+		_ui_blit_tex = any_array_create(0);
 		_ui_blit_x   = f32_array_create(0);
 		_ui_blit_y   = f32_array_create(0);
+		gc_root(_ui_blit_tex);
+		gc_root(_ui_blit_x);
+		gc_root(_ui_blit_y);
 	}
 	any_array_push(_ui_blit_tex, &handle->texture);
 	f32_array_push(_ui_blit_x, current->_window_x);
