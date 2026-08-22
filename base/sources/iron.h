@@ -742,7 +742,7 @@ gpu_shader_t *gpu_create_shader_from_source(char *source, int source_size, gpu_s
 	strcpy(temp_string_s, source);
 	gpu_shader_init(shader, temp_string_s, strlen(temp_string_s), shader_type);
 
-#elif defined(IRON_VULKAN)
+#elif defined(IRON_VULKAN) || defined(IRON_OPENGL) || defined(IRON_OPENGL_ES)
 
 	gpu_shader_init(shader, source, source_size, shader_type);
 
