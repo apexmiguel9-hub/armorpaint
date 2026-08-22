@@ -841,9 +841,20 @@ void render_path_paint_end() {
 		return;
 	}
 
-	if (g_context->pdirty > 0) {
+	// Flush deferred dilation when pdirty has stayed at 1 for two consecutive
+	// frames (no new dab arrived => stroke truly ended). Mid-stroke gaps only
+	// ever spend ONE frame at pdirty==1 because touch events reset it to 2.
+	static i32 _prev_pdirty = 0;
+	if (render_path_paint_dilation_pending && g_context->pdirty == 1 && _prev_pdirty == 1) {
+		render_path_paint_dilation_pending = false;
+		render_path_paint_dilate(true, true);
+		render_path_paint_dilated = true; // seams fixed; begin() predilate not needed
 		layers_update_linked_layers();
 	}
+	else if (g_context->pdirty > 0) {
+		layers_update_linked_layers();
+	}
+	_prev_pdirty = g_context->pdirty;
 
 	g_context->pdirty--;
 }
@@ -899,9 +910,9 @@ void render_path_paint_draw() {
 	if (history_undo_layers != NULL) {
 		render_path_paint_commands_symmetry();
 
-		if (g_context->pdirty > 0) {
-			render_path_paint_dilated = false;
-		}
+		// NOTE: render_path_paint_dilated is intentionally NOT reset here anymore.
+		// Resetting it made begin() re-run the 4-pass nor/pack predilate on EVERY
+		// stroke frame; dilation now runs once when the stroke ends (see end()).
 
 		if (g_context->tool == TOOL_TYPE_BAKE) {
 			if (g_context->bake_type == BAKE_TYPE_NORMAL || g_context->bake_type == BAKE_TYPE_HEIGHT || g_context->bake_type == BAKE_TYPE_DERIVATIVE) {
@@ -961,7 +972,14 @@ void render_path_paint_draw() {
 			}
 		}
 		else { // Paint
-			render_path_paint_commands_paint(true);
+			if (g_config->dilate_radius > 0 && !g_context->paint2d) {
+				// Defer dilation to stroke end (saves 6 fullscreen passes per frame)
+				render_path_paint_dilation_pending = true;
+				render_path_paint_commands_paint(false);
+			}
+			else {
+				render_path_paint_commands_paint(true);
+			}
 		}
 	}
 
