@@ -206,9 +206,21 @@ int iron_perf_draws    = 0;
 bool passlist_dump_frame = false;
 int  passlist_count      = 0;
 // Lazy screen-pass merging state
-static bool lazy_screen_open     = false;
+static bool lazy_screen_open      = false;
 static bool last_begin_was_screen = false;
+static bool gpu_pass_open         = false; // authoritative: is a render pass currently open in the cmd buffer?
 static void gpu_lazy_end_if_open();
+
+// Close ANY open render pass before touching resources (copies, layouts, binds)
+static void gpu_end_pass_for_resource_op() {
+	if (!gpu_pass_open) {
+		return;
+	}
+	gpu_pass_open     = false;
+	lazy_screen_open  = false;
+	iron_shim_end_rendering(command_buffer);
+	++perf_frame_ends;
+}
 
 // Per-pass GPU timestamp profiling (shim renderpass path).
 #define PERF_TS_MAX   128
@@ -765,7 +777,8 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkImageLayout old_layout, VkImageLayout new_layout) {
 	old_layout = iron_compat_layout(old_layout);
 	new_layout = iron_compat_layout(new_layout);
-	gpu_lazy_end_if_open();
+	bool reopen = gpu_pass_open; // restore the pass afterwards if one was open
+	gpu_end_pass_for_resource_op();
 
 	VkImageMemoryBarrier barrier = {
 	    .sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -800,9 +813,10 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 		}
 	}
 
-	if (gpu_in_use) {
+	if (gpu_in_use && reopen) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
-		lazy_screen_open = last_begin_was_screen; // restored pass may be the merged screen pass
+		gpu_pass_open         = true;
+		lazy_screen_open      = last_begin_was_screen; // restored pass may be the merged screen pass
 	}
 }
 
@@ -1744,9 +1758,14 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	    .pDepthAttachment     = current_depth_buffer == NULL ? VK_NULL_HANDLE : &current_depth_attachment_info,
 	};
 	struct timespec pb0, pb1;
+	// Defensive: never nest render passes
+	if (gpu_pass_open) {
+		gpu_end_pass_for_resource_op();
+	}
 	clock_gettime(CLOCK_MONOTONIC, &pb0);
 	iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	clock_gettime(CLOCK_MONOTONIC, &pb1);
+	gpu_pass_open         = true;
 	++perf_frame_begins;
 	perf_frame_begin_us += (pb1.tv_sec - pb0.tv_sec) * 1000000 + (pb1.tv_nsec - pb0.tv_nsec) / 1000;
 	lazy_screen_open      = screen_pass;
@@ -1768,6 +1787,7 @@ void gpu_lazy_end_if_open() {
 		return;
 	}
 	lazy_screen_open = false;
+	gpu_pass_open    = false;
 	iron_shim_end_rendering(command_buffer);
 	++perf_frame_ends;
 }
@@ -1781,6 +1801,7 @@ void gpu_end_internal() {
 		// Defer: keep the merged screen pass open across draw_begin/draw_end pairs
 		return;
 	}
+	gpu_pass_open = false;
 	iron_shim_end_rendering(command_buffer);
 	++perf_frame_ends;
 
@@ -1796,7 +1817,7 @@ void gpu_end_internal() {
 }
 
 void gpu_execute_and_wait() {
-	gpu_lazy_end_if_open();
+	gpu_end_pass_for_resource_op();
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
 
@@ -1834,6 +1855,8 @@ void gpu_execute_and_wait() {
 
 	if (gpu_in_use) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
+		gpu_pass_open         = true;
+		lazy_screen_open      = last_begin_was_screen;
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline->impl.pipeline);
 		VkBuffer     buffers[1];
 		VkDeviceSize offsets[1];
@@ -1870,8 +1893,8 @@ void gpu_present_internal() {
 	perf_frame_draws  = 0;
 	perf_frame_begin_us = 0;
 
-	// Close the merged screen pass and transition the swapchain image for presentation
-	gpu_lazy_end_if_open();
+	// Close any open pass and transition the swapchain image for presentation
+	gpu_end_pass_for_resource_op();
 	if (framebuffers[framebuffer_index].state != GPU_TEXTURE_STATE_PRESENT) {
 		gpu_barrier(&framebuffers[framebuffer_index], GPU_TEXTURE_STATE_PRESENT);
 	}
@@ -2074,10 +2097,13 @@ void gpu_get_render_target_pixels(gpu_texture_t *render_target, uint8_t *data) {
 	region.imageExtent.width               = (uint32_t)render_target->width;
 	region.imageExtent.height              = (uint32_t)render_target->height;
 	region.imageExtent.depth               = 1;
-	gpu_lazy_end_if_open();
+	bool reopen = gpu_pass_open;
+	gpu_end_pass_for_resource_op();
 	vkCmdCopyImageToBuffer(command_buffer, render_target->impl.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_buffer, 1, &region);
-	if (gpu_in_use) {
+	if (gpu_in_use && reopen) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
+		gpu_pass_open         = true;
+		lazy_screen_open      = last_begin_was_screen;
 	}
 
 	set_image_layout(render_target->impl.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -2487,7 +2513,8 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 
 	vkBindImageMemory(device, texture->impl.image, texture->impl.mem, 0);
 
-	gpu_lazy_end_if_open();
+	bool tex_reopen = gpu_pass_open;
+	gpu_end_pass_for_resource_op();
 
 	VkImageMemoryBarrier barrier = {
 	    .sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -2544,8 +2571,10 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	vkCreateImageView(device, &view_info, NULL, &texture->impl.view);
 	iron_view_fmt_record(texture->impl.view, view_info.format);
 
-	if (gpu_in_use) {
+	if (gpu_in_use && tex_reopen) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
+		gpu_pass_open         = true;
+		lazy_screen_open      = last_begin_was_screen;
 	}
 
 	gpu_execute_and_wait(); ////
@@ -2620,7 +2649,8 @@ void _gpu_buffer_init(VkBuffer *buf, VkDeviceMemory *mem, uint32_t size, uint32_
 }
 
 void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
-	gpu_lazy_end_if_open();
+	bool buf_reopen = gpu_pass_open;
+	gpu_end_pass_for_resource_op();
 	VkBufferCopy copy_region = {
 	    .size = size,
 	};
@@ -2636,8 +2666,10 @@ void _gpu_buffer_copy(VkBuffer dest, VkBuffer source, uint32_t size) {
 	    .size                = VK_WHOLE_SIZE,
 	};
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &buf_barrier, 0, NULL);
-	if (gpu_in_use) {
+	if (gpu_in_use && buf_reopen) {
 		iron_shim_begin_rendering(command_buffer, &current_rendering_info);
+		gpu_pass_open         = true;
+		lazy_screen_open      = last_begin_was_screen;
 	}
 }
 
