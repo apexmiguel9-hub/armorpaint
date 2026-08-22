@@ -1,0 +1,55 @@
+name: Build Android APK (OpenGL)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Generate Android project with OpenGL graphics via amake
+        run: |
+          cd paint
+          ../base/make --target android --graphics opengl
+
+      - name: Restore gradle-wrapper.jar
+        run: cp base/sources/backends/data/android/gradle/wrapper/gradle-wrapper.jar paint/build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar || true
+
+      - name: Restore keystore
+        run: cp base/sources/backends/data/android/app/armorpaint-test.keystore paint/build/ArmorPaint/app/armorpaint-test.keystore || true
+
+      - name: Install CMake 3.22.1 & fix build.gradle.kts
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "cmake;3.22.1" > /dev/null || true
+          if [ -f paint/build/ArmorPaint/app/build.gradle.kts ]; then
+            sed -i 's/version = "4.0.2"/version = "3.22.1"/' paint/build/ArmorPaint/app/build.gradle.kts || true
+          fi
+
+      - name: Build APK (Debug & Release)
+        run: |
+          cd paint/build/ArmorPaint
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease --no-daemon
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: armorpaint-android-opengl-arm64
+          path: paint/build/ArmorPaint/app/build/outputs/apk/*/*.apk
