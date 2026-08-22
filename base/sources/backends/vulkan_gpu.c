@@ -991,7 +991,9 @@ static void create_swapchain() {
 	present_mode_count = present_mode_count > 256 ? 256 : present_mode_count;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &present_mode_count, present_modes);
 
-	uint32_t image_count = GPU_FRAMEBUFFER_COUNT;
+	// Driver allocates minImageCount+1 images on this device; request one less so its
+	// allocation fits GPU_FRAMEBUFFER_COUNT exactly and every acquired index is initialized.
+	uint32_t image_count = GPU_FRAMEBUFFER_COUNT > 0 ? GPU_FRAMEBUFFER_COUNT - 1 : 0;
 	if (image_count < caps.minImageCount) {
 		image_count = caps.minImageCount;
 	}
