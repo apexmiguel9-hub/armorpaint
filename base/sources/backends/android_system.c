@@ -1105,9 +1105,62 @@ void android_main(struct android_app *application) {
 	(*activity->vm)->DetachCurrentThread(activity->vm);
 }
 
+// Perf pump: light duty-cycle load on a big core to keep CPU governor
+// frequencies ramped while painting (Android power HAL only boosts for a few
+// seconds after each interaction, then clocks drop -> fps decay mid-stroke).
+#include <pthread.h>
+#include <sched.h>
+#include <sys/resource.h>
+
+static void *perf_pump_thread(void *arg) {
+	cpu_set_t set;
+	CPU_ZERO(&set);
+	CPU_SET(6, &set); // second big core (A75); leave cpu7 for the main thread
+	sched_setaffinity(0, sizeof(set), &set);
+	setpriority(PRIO_PROCESS, 0, 5);
+	(void)arg;
+	int log_counter = 0;
+	for (;;) {
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		f64 now    = (f64)ts.tv_sec + (f64)ts.tv_nsec / 1e9;
+		f64 target = now + 0.002; // ~2ms spin
+		while (now < target) {
+			clock_gettime(CLOCK_MONOTONIC, &ts);
+			now = (f64)ts.tv_sec + (f64)ts.tv_nsec / 1e9;
+		}
+		ts.tv_sec  = 0;
+		ts.tv_nsec = 6000000; // ~6ms sleep => ~25% duty
+		nanosleep(&ts, NULL);
+		if (++log_counter >= 250) { // every ~2s: log CPU freqs
+			log_counter = 0;
+			FILE *f7    = fopen("/sys/devices/system/cpu/cpu7/cpufreq/scaling_cur_freq", "r");
+			FILE *f6    = fopen("/sys/devices/system/cpu/cpu6/cpufreq/scaling_cur_freq", "r");
+			int   f7v = 0, f6v = 0;
+			if (f7 != NULL) {
+				if (fscanf(f7, "%d", &f7v) != 1) f7v = -1;
+				fclose(f7);
+			}
+			if (f6 != NULL) {
+				if (fscanf(f6, "%d", &f6v) != 1) f6v = -1;
+				fclose(f6);
+			}
+			iron_log("PERF: cpu7=%dkHz cpu6=%dkHz", f7v, f6v);
+		}
+	}
+	return NULL;
+}
+
+static void perf_pump_start() {
+	pthread_t t;
+	pthread_create(&t, NULL, perf_pump_thread, NULL);
+	pthread_detach(t);
+}
+
 void iron_init(iron_window_options_t *win) {
 	iron_mutex_init(&unicode_mutex);
 	gpu_init(win->depth_bits, win->vsync);
+	perf_pump_start();
 	android_check_permissions();
 #ifdef WITH_GAMEPAD
 	iron_internal_gamepad_trigger_connect(0);
