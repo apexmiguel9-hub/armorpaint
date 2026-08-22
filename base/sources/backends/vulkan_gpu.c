@@ -1768,14 +1768,19 @@ void gpu_lazy_end_if_open() {
 		return;
 	}
 	lazy_screen_open = false;
-	if (gpu_in_use) {
-		iron_shim_end_rendering(command_buffer);
-		++perf_frame_ends;
-	}
+	iron_shim_end_rendering(command_buffer);
+	++perf_frame_ends;
+}
+
+void gpu_lazy_flush() {
+	gpu_lazy_end_if_open();
 }
 
 void gpu_end_internal() {
-	lazy_screen_open = false; // deferred end resolves here
+	if (lazy_screen_open) {
+		// Defer: keep the merged screen pass open across draw_begin/draw_end pairs
+		return;
+	}
 	iron_shim_end_rendering(command_buffer);
 	++perf_frame_ends;
 
@@ -1864,6 +1869,13 @@ void gpu_present_internal() {
 	perf_frame_ends   = 0;
 	perf_frame_draws  = 0;
 	perf_frame_begin_us = 0;
+
+	// Close the merged screen pass and transition the swapchain image for presentation
+	gpu_lazy_end_if_open();
+	if (framebuffers[framebuffer_index].state != GPU_TEXTURE_STATE_PRESENT) {
+		gpu_barrier(&framebuffers[framebuffer_index], GPU_TEXTURE_STATE_PRESENT);
+	}
+
 	vkEndCommandBuffer(command_buffer);
 	vkResetFences(device, 1, &fence);
 

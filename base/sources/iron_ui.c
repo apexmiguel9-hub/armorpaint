@@ -17,10 +17,6 @@ static ui_theme_t  *theme;
 static bool         ui_key_repeat         = true; // Emulate key repeat for non-character keys
 static bool         ui_dynamic_glyph_load = true; // Allow text input fields to push new glyphs into the font atlas
 static float        ui_key_repeat_time    = 0.0;
-// Batched window->screen texture blits (one fullscreen pass per frame instead of one per window)
-static any_array_t *_ui_blit_tex = NULL;
-static f32_array_t *_ui_blit_x   = NULL;
-static f32_array_t *_ui_blit_y   = NULL;
 char                ui_text_to_paste[UI_TEXT_MAX];
 char                ui_text_to_copy[UI_TEXT_MAX];
 static bool         ui_combo_first         = true;
@@ -1862,21 +1858,14 @@ void ui_end_window() {
 
 	current->window_ended = true;
 
-	// Queue window texture blit (flushed together in ui_end)
-	if (_ui_blit_tex == NULL) {
-		_ui_blit_tex = any_array_create(0);
-		_ui_blit_x   = f32_array_create(0);
-		_ui_blit_y   = f32_array_create(0);
-		gc_root(_ui_blit_tex);
-		gc_root(_ui_blit_x);
-		gc_root(_ui_blit_y);
-	}
-	any_array_push(_ui_blit_tex, &handle->texture);
-	f32_array_push(_ui_blit_x, current->_window_x);
-	f32_array_push(_ui_blit_y, current->_window_y);
+	// Draw window texture
+	draw_begin(NULL, false, 0);
+	draw_set_color(0xffffffff);
+	draw_image(&handle->texture, current->_window_x, current->_window_y);
 	if (handle->redraws <= 0) {
 		handle->redraws--;
 	}
+	draw_end();
 }
 
 bool ui_window_dirty(ui_handle_t *handle, int x, int y, int w, int h) {
@@ -2475,19 +2464,6 @@ void ui_end() {
 		ui_end_window();
 	}
 	current->tab_pressed_handle = NULL;
-
-	// Flush all queued window blits in a single fullscreen pass
-	if (_ui_blit_tex != NULL && _ui_blit_tex->length > 0) {
-		draw_begin(NULL, false, 0);
-		draw_set_color(0xffffffff);
-		for (uint32_t i = 0; i < _ui_blit_tex->length; ++i) {
-			draw_image((gpu_texture_t *)_ui_blit_tex->buffer[i], _ui_blit_x->buffer[i], _ui_blit_y->buffer[i]);
-		}
-		draw_end();
-		_ui_blit_tex->length = 0;
-		_ui_blit_x->length   = 0;
-		_ui_blit_y->length   = 0;
-	}
 }
 
 void ui_set_input_position(ui_t *ui, int x, int y) {

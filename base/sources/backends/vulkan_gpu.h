@@ -46,3 +46,6 @@ typedef struct {
 	VkBuffer       instances_buffer;
 	VkDeviceMemory instances_mem;
 } gpu_acceleration_structure_impl_t;
+
+// Close the merged screen render pass if one is open (no-op otherwise)
+void gpu_lazy_flush();
