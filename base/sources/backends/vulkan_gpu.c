@@ -332,7 +332,18 @@ static VkFramebuffer iron_shim_get_framebuffer(const struct iron_fb_key *key) {
 	return fb;
 }
 
+static bool shim_pass_active = false;
+
 static void iron_shim_end_rendering(VkCommandBuffer cb) {
+	if (!shim_pass_active) {
+		static bool warned_end_inactive = false;
+		if (!warned_end_inactive) {
+			iron_error("shim: end_rendering skipped - no active pass (begin failed earlier)");
+			warned_end_inactive = true;
+		}
+		return;
+	}
+	shim_pass_active = false;
 	if (_vkCmdEndRendering != NULL) {
 		_vkCmdEndRendering(cb);
 		return;
@@ -361,15 +372,18 @@ static void iron_shim_end_rendering(VkCommandBuffer cb) {
 static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo *info) {
 	if (_vkCmdBeginRendering != NULL) {
 		_vkCmdBeginRendering(cb, info);
+		shim_pass_active = true;
 		return;
 	}
 
 	if (_vkCmdBeginRenderPass2KHR == NULL || _vkCreateRenderPass2KHR == NULL) {
 		iron_error("shim: begin-rendering PFNs missing");
+		shim_pass_active = false;
 		return;
 	}
 	if (info->renderArea.extent.width == 0 || info->renderArea.extent.height == 0) {
 		iron_error("shim: zero render area %ux%u", info->renderArea.extent.width, info->renderArea.extent.height);
+		shim_pass_active = false;
 		return;
 	}
 
@@ -389,7 +403,10 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 		const VkRenderingAttachmentInfo *att = &info->pColorAttachments[i];
 		VkFormat fmt = iron_view_fmt_get(att->imageView);
 		if (fmt == VK_FORMAT_UNDEFINED) {
-			iron_error("shim: no format recorded for color view %u", i);
+			iron_error("shim: no format recorded for color view %u (view=%p colors=%u depth=%p area=%ux%u)", i, (void *)att->imageView,
+			           rp_key.color_count, info->pDepthAttachment ? (void *)info->pDepthAttachment->imageView : NULL, info->renderArea.extent.width,
+			           info->renderArea.extent.height);
+			shim_pass_active = false;
 			return;
 		}
 		rp_key.color_formats[i] = fmt;
@@ -456,6 +473,7 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 			vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, perf_ts_pool, perf_ts_count++);
 		}
 		_vkCmdBeginRenderPass2KHR(cb, &rpbi, &begin_info);
+		shim_pass_active = true;
 		if (do_log) {
 			iron_log("shim: begin #%d returned OK", shim_begin_log_count);
 			++shim_begin_log_count;
@@ -885,7 +903,7 @@ void gpu_render_target_init2(gpu_texture_t *target, uint32_t width, uint32_t hei
 	    .subresourceRange.layerCount     = 1,
 	};
 
-	vkCreateImage(device, &image, NULL, &target->impl.image);
+	VkResult img_res2 = vkCreateImage(device, &image, NULL, &target->impl.image);
 	VkMemoryRequirements memory_reqs;
 	vkGetImageMemoryRequirements(device, target->impl.image, &memory_reqs);
 
@@ -895,6 +913,14 @@ void gpu_render_target_init2(gpu_texture_t *target, uint32_t width, uint32_t hei
 	};
 	allocation_nfo.memoryTypeIndex = memory_type_from_properties(memory_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	VkResult result                = vkAllocateMemory(device, &allocation_nfo, NULL, &target->impl.mem);
+
+	if (result != VK_SUCCESS) {
+		iron_error("shim: RT alloc FAILED (%d) %ux%u fmt=%d cleanup_pending=%d", (int)result, width, height, (int)format,
+		           gpu_cleanup_pending() ? 1 : 0);
+	}
+	if (img_res2 != VK_SUCCESS) {
+		iron_error("shim: RT vkCreateImage FAILED (%d)", (int)img_res2);
+	}
 
 	if (result != VK_SUCCESS && gpu_cleanup_pending()) {
 		gpu_execute_and_wait();
@@ -908,7 +934,10 @@ void gpu_render_target_init2(gpu_texture_t *target, uint32_t width, uint32_t hei
 	set_image_layout(target->impl.image, format == GPU_TEXTURE_FORMAT_D32 ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
 	                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	color_image_view.image = target->impl.image;
-	vkCreateImageView(device, &color_image_view, NULL, &target->impl.view);
+	VkResult view_res = vkCreateImageView(device, &color_image_view, NULL, &target->impl.view);
+	if (view_res != VK_SUCCESS || target->impl.view == VK_NULL_HANDLE) {
+		iron_error("shim: RT vkCreateImageView FAILED (%d)", (int)view_res);
+	}
 	iron_view_fmt_record(target->impl.view, color_image_view.format);
 }
 
@@ -1601,6 +1630,10 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	clear_value.color.float32[3] = ((color & 0xff000000) >> 24) / 255.0f;
 
 	for (size_t i = 0; i < current_render_targets_count; ++i) {
+		if (current_render_targets[i]->impl.view == VK_NULL_HANDLE) {
+			iron_error("shim: begin with NULL color view! tgt=%p w=%u h=%u fmt=%d idx=%zu", (void *)current_render_targets[i],
+			           current_render_targets[i]->width, current_render_targets[i]->height, (int)current_render_targets[i]->format, i);
+		}
 		current_color_attachment_infos[i] = (VkRenderingAttachmentInfo){
 		    .sType              = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 		    .imageView          = current_render_targets[i]->impl.view,
