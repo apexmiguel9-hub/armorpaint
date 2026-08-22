@@ -202,6 +202,9 @@ static long perf_frame_begin_us = 0;
 int iron_perf_frame_ms = 0;
 int iron_perf_begins   = 0;
 int iron_perf_draws    = 0;
+// Pass-list dump control
+bool passlist_dump_frame = false;
+int  passlist_count      = 0;
 
 // Per-pass GPU timestamp profiling (shim renderpass path).
 #define PERF_TS_MAX   128
@@ -471,6 +474,18 @@ static void iron_shim_begin_rendering(VkCommandBuffer cb, const VkRenderingInfo 
 	fb_key.color_count = rp_key.color_count;
 	fb_key.width       = info->renderArea.extent.width;
 	fb_key.height      = info->renderArea.extent.height;
+
+	// Pass-list collection for periodic dump (perf analysis)
+	if (passlist_dump_frame && passlist_count < 32) {
+		char line[192];
+		int  off = snprintf(line, sizeof(line), "PASSLIST #%d %ux%u c%u d%d", passlist_count, fb_key.width, fb_key.height,
+		                    rp_key.color_count, rp_key.depth_format != VK_FORMAT_UNDEFINED ? 1 : 0);
+		for (uint32_t ci = 0; ci < rp_key.color_count && off < (int)sizeof(line) - 8; ++ci) {
+			off += snprintf(line + off, sizeof(line) - off, " %d", (int)rp_key.color_formats[ci]);
+		}
+		iron_log("shim: %s", line);
+		++passlist_count;
+	}
 
 	VkFramebuffer fb = iron_shim_get_framebuffer(&fb_key);
 	if (fb == VK_NULL_HANDLE) {
@@ -1818,6 +1833,10 @@ void gpu_present_internal() {
 	iron_perf_frame_ms = (int)pf_ms;
 	iron_perf_begins   = perf_frame_begins;
 	iron_perf_draws    = perf_frame_draws;
+	passlist_dump_frame = (pf_count % 120 == 3);
+	if (passlist_dump_frame) {
+		passlist_count = 0;
+	}
 	perf_frame_begins = 0;
 	perf_frame_ends   = 0;
 	perf_frame_draws  = 0;
