@@ -2,6 +2,7 @@
 #include "../global.h"
 
 bool             render_path_paint_dilated               = true;
+static bool      render_path_paint_dilation_pending      = false;
 mesh_object_t   *render_path_paint_painto                = NULL;
 mesh_object_t   *render_path_paint_planeo                = NULL;
 u8_array_t      *render_path_paint_visibles              = NULL;
