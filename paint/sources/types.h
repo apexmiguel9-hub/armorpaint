@@ -235,6 +235,7 @@ typedef struct context {
 	f32                         grab_start_x;
 	f32                         grab_start_y;
 	bool                        show_compass;
+	bool                        show_statistics;
 	i32                         project_type;
 	f32                         last_paint_vec_x;
 	f32                         last_paint_vec_y;

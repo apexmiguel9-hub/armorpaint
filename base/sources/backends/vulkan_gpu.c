@@ -198,6 +198,10 @@ static int  perf_frame_begins   = 0;
 static int  perf_frame_ends     = 0;
 static int  perf_frame_draws    = 0;
 static long perf_frame_begin_us = 0;
+// Last-frame snapshot for on-screen statistics overlay
+int iron_perf_frame_ms = 0;
+int iron_perf_begins   = 0;
+int iron_perf_draws    = 0;
 
 // Per-pass GPU timestamp profiling (shim renderpass path).
 #define PERF_TS_MAX   128
@@ -1804,13 +1808,16 @@ void gpu_present_internal() {
 	static int             pf_count = 0;
 	struct timespec        now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
+	long pf_ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
 	if (pf_count > 0 && pf_count <= 120) {
-		long ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
-		iron_log("PERF: frame %d total=%ldms begins=%d ends=%d draws=%d begin_cpu=%ld.%02ldms", pf_count, ms, perf_frame_begins,
+		iron_log("PERF: frame %d total=%ldms begins=%d ends=%d draws=%d begin_cpu=%ld.%02ldms", pf_count, pf_ms, perf_frame_begins,
 		         perf_frame_ends, perf_frame_draws, perf_frame_begin_us / 1000, (perf_frame_begin_us / 10) % 100);
 	}
 	pf_ts = now;
 	++pf_count;
+	iron_perf_frame_ms = (int)pf_ms;
+	iron_perf_begins   = perf_frame_begins;
+	iron_perf_draws    = perf_frame_draws;
 	perf_frame_begins = 0;
 	perf_frame_ends   = 0;
 	perf_frame_draws  = 0;

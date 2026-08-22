@@ -479,6 +479,10 @@ void ui_menubar_draw_category_items() {
 			g_context->ddirty = 2;
 		}
 
+		ui_handle_t *stats_handle  = ui_handle(__ID__);
+		stats_handle->b            = g_context->show_statistics;
+		g_context->show_statistics = ui_check(stats_handle, string(" %s", tr("Statistics")), "");
+
 		ui_handle_t *show_envmap_handle = ui_handle(__ID__);
 		show_envmap_handle->b           = g_context->show_envmap;
 		g_context->show_envmap          = ui_check(show_envmap_handle, string(" %s", tr("Envmap")), "");
