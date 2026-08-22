@@ -1109,14 +1109,9 @@ void android_main(struct android_app *application) {
 // frequencies ramped while painting (Android power HAL only boosts for a few
 // seconds after each interaction, then clocks drop -> fps decay mid-stroke).
 #include <pthread.h>
-#include <sched.h>
 #include <sys/resource.h>
 
 static void *perf_pump_thread(void *arg) {
-	cpu_set_t set;
-	CPU_ZERO(&set);
-	CPU_SET(6, &set); // second big core (A75); leave cpu7 for the main thread
-	sched_setaffinity(0, sizeof(set), &set);
 	setpriority(PRIO_PROCESS, 0, 5);
 	(void)arg;
 	int log_counter = 0;
