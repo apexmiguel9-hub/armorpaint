@@ -334,6 +334,8 @@ char *sys_shader_ext(void) {
 	return ".metal";
 #elif defined(IRON_WASM)
 	return ".wgsl";
+#elif defined(IRON_OPENGL) || defined(IRON_OPENGL_ES)
+	return ".glsl";
 #else
 	return ".d3d11";
 #endif
