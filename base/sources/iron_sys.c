@@ -137,8 +137,21 @@ void sys_start(iron_window_options_t *ops) {
 	strcat(path_text_frag, "draw_text.frag");
 	strcat(path_text_frag, ext);
 
-	draw_init(iron_load_blob(path_image_vert), iron_load_blob(path_image_frag), iron_load_blob(path_rect_vert), iron_load_blob(path_rect_frag),
-	          iron_load_blob(path_tris_vert), iron_load_blob(path_tris_frag), iron_load_blob(path_text_vert), iron_load_blob(path_text_frag));
+	buffer_t *b_img_v = iron_load_blob(path_image_vert);
+	buffer_t *b_img_f = iron_load_blob(path_image_frag);
+	buffer_t *b_rec_v = iron_load_blob(path_rect_vert);
+	buffer_t *b_rec_f = iron_load_blob(path_rect_frag);
+	buffer_t *b_tri_v = iron_load_blob(path_tris_vert);
+	buffer_t *b_tri_f = iron_load_blob(path_tris_frag);
+	buffer_t *b_txt_v = iron_load_blob(path_text_vert);
+	buffer_t *b_txt_f = iron_load_blob(path_text_frag);
+
+	if (b_img_v == NULL || b_img_f == NULL || b_rec_v == NULL || b_rec_f == NULL ||
+	    b_tri_v == NULL || b_tri_f == NULL || b_txt_v == NULL || b_txt_f == NULL) {
+		iron_log("FATAL: Failed to load painters shader blobs!");
+	}
+
+	draw_init(b_img_v, b_img_f, b_rec_v, b_rec_f, b_tri_v, b_tri_f, b_txt_v, b_txt_f);
 
 	_iron_set_update_callback(sys_render);
 	_iron_set_drop_files_callback(sys_drop_files_callback);
