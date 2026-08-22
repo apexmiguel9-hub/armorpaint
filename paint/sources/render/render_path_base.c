@@ -429,14 +429,15 @@ void render_path_base_draw_gbuffer() {
 		render_path_set_target("gbuffer1", NULL, NULL, GPU_CLEAR_COLOR, 0x00000000, 0.0);
 	}
 
-	render_path_set_target("gbuffer0", NULL, "main", GPU_CLEAR_DEPTH, 0, 1.0); // Only clear gbuffer0
 	string_array_t *additional = any_array_create_from_raw(
 	    (void *[]){
 	        "gbuffer1",
 	        "gbuffer2",
 	    },
 	    2);
-	render_path_set_target("gbuffer0", additional, "main", GPU_CLEAR_NONE, 0, 0.0);
+	// Single pass: depth-only clear + materials MRT (colors LOAD).
+	// Upstream used an extra empty pass just to clear depth.
+	render_path_set_target("gbuffer0", additional, "main", GPU_CLEAR_DEPTH, 0, 1.0);
 	render_path_paint_bind_layers();
 	render_path_draw_meshes("mesh");
 	render_path_paint_unbind_layers();
