@@ -722,13 +722,14 @@ void tab_layers_draw_layer_context_menu_draw() {
 		ui_menu_align();
 		string_array_t *ar = any_array_create_from_raw(
 		    (void *[]){
+		        "1024",
 		        "2048",
 		        "4096",
 		        "8192",
 		        "16384",
 		        tr("Custom"),
 		    },
-		    5);
+		    6);
 		ui_combo(base_res_handle, ar, tr("Resolution"), true, UI_ALIGN_LEFT, true);
 		if (base_res_handle->changed) {
 			ui_menu_show_first = true;

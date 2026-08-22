@@ -405,12 +405,13 @@ void box_preferences_usage_tab() {
 
 	string_array_t *res_combo = any_array_create_from_raw(
 	    (void *[]){
+	        "1024",
 	        "2048",
 	        "4096",
 	        "8192",
 	        "16384",
 	    },
-	    4);
+	    5);
 	g_config->layer_res = ui_combo(h_layer_res, res_combo, tr("Default Layer Resolution"), true, UI_ALIGN_LEFT, true);
 
 	ui_handle_t *h_server = ui_handle(__ID__);

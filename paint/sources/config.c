@@ -239,7 +239,7 @@ void config_init() {
 		g_config->wrap_mouse         = false;
 		g_config->camera_pivot       = CAMERA_PIVOT_CENTER;
 		g_config->camera_controls    = CAMERA_CONTROLS_ORBIT;
-		g_config->layer_res          = TEXTURE_RES_RES2048;
+		g_config->layer_res          = TEXTURE_RES_RES1024;
 #if defined(IRON_ANDROID) || defined(IRON_IOS)
 		g_config->touch_ui      = true;
 		g_config->splash_screen = true;
@@ -435,7 +435,7 @@ f32 config_get_super_sample_size(i32 i) {
 }
 
 i32 config_texture_res_size(i32 pos) {
-	return pos == TEXTURE_RES_RES2048 ? 2048 : pos == TEXTURE_RES_RES4096 ? 4096 : pos == TEXTURE_RES_RES8192 ? 8192 : pos == TEXTURE_RES_RES16384 ? 16384 : 0;
+	return pos == TEXTURE_RES_RES1024 ? 1024 : pos == TEXTURE_RES_RES2048 ? 2048 : pos == TEXTURE_RES_RES4096 ? 4096 : pos == TEXTURE_RES_RES8192 ? 8192 : pos == TEXTURE_RES_RES16384 ? 16384 : 0;
 }
 
 i32 config_get_layer_res() {
@@ -460,7 +460,8 @@ i32 config_get_texture_res_y() {
 }
 
 i32 config_get_texture_res_pos(i32 i) {
-	return i == 2048    ? TEXTURE_RES_RES2048
+	return i == 1024    ? TEXTURE_RES_RES1024
+	       : i == 2048  ? TEXTURE_RES_RES2048
 	       : i == 4096  ? TEXTURE_RES_RES4096
 	       : i == 8192  ? TEXTURE_RES_RES8192
 	       : i == 16384 ? TEXTURE_RES_RES16384

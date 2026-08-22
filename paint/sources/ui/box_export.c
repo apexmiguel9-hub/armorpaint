@@ -41,13 +41,14 @@ void box_export_tab_export_textures(char *title, bool bake_material) {
 
 		string_array_t *base_res_combo = any_array_create_from_raw(
 		    (void *[]){
+		        "1024",
 		        "2048",
 		        "4096",
 		        "8192",
 		        "16384",
 		        tr("Custom"),
 		    },
-		    5);
+		    6);
 
 		ui_combo(base_res_handle, base_res_combo, tr("Resolution"), true, UI_ALIGN_LEFT, true);
 		if (base_res_handle->changed) {
