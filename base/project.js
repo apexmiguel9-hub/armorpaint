@@ -93,7 +93,8 @@ else if (platform == "android") {
 	project.add_cfiles("sources/backends/android_system.*");
 	project.add_cfiles("sources/backends/posix_thread.*");
 	if (graphics == "opengl") {
-		project.add_cfiles("../base/sources/backends/opengl/kinc/backend/graphics4/*.c");
+		project.add_cfiles("sources/backends/opengl/kinc/backend/graphics4/*.c");
+		project.add_cfiles("sources/backends/opengl/kinc/backend/graphics4/*.c.h");
 		project.add_define("IRON_OPENGL");
 		project.add_define("IRON_OPENGL_ES");
 		project.add_define("IRON_EGL");
