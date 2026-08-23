@@ -2,17 +2,19 @@
 
 #include "iron_array.h"
 #include "iron_global.h"
-#include "iron_gpu.h"
 #include "iron_math.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #if defined(IRON_WINDOWS)
 #include "backends/direct3d12_gpu.h"
 #elif defined(IRON_MACOS) || defined(IRON_IOS)
 #include "backends/metal_gpu.h"
 #elif defined(IRON_WASM)
 #include "backends/webgpu_gpu.h"
+#elif defined(IRON_OPENGL)
+#include "backends/opengl_gpu.h"
 #else
 #include "backends/vulkan_gpu.h"
 #endif
@@ -103,9 +105,9 @@ typedef struct gpu_texture {
 typedef struct gpu_buffer {
 	uint32_t          count;
 	uint32_t          stride;
-	uint8_t          *data; // constant buffer data
+	uint8_t          *data;
 	bool              cpu_write;
-	gpu_buffer_impl_t impl;
+	gpu_buffer_impl_t  impl;
 } gpu_buffer_t;
 
 typedef struct gpu_vertex_element {
@@ -232,7 +234,7 @@ void gpu_raytrace_pipeline_init(gpu_raytrace_pipeline_t *pipeline, void *shader,
 void gpu_raytrace_pipeline_destroy(gpu_raytrace_pipeline_t *pipeline);
 void gpu_raytrace_acceleration_structure_init(gpu_acceleration_structure_t *accel);
 void gpu_raytrace_acceleration_structure_add(gpu_acceleration_structure_t *accel, gpu_buffer_t *vb, gpu_buffer_t *ib, mat4_t transform);
-void gpu_raytrace_acceleration_structure_build(gpu_acceleration_structure_t *accel, gpu_buffer_t *_vb_full, gpu_buffer_t *_ib_full);
+void gpu_raytrace_acceleration_structure_build(gpu_acceleration_structure_t *accel, gpu_buffer_t *vb_full, gpu_buffer_t *ib_full);
 void gpu_raytrace_acceleration_structure_destroy(gpu_acceleration_structure_t *accel);
 void gpu_raytrace_set_textures(gpu_texture_t *texpaint0, gpu_texture_t *texpaint1, gpu_texture_t *texpaint2, gpu_texture_t *texenv, gpu_texture_t *texsobol,
                                gpu_texture_t *texscramble, gpu_texture_t *texrank);
@@ -245,8 +247,6 @@ void _gpu_raytrace_init(buffer_t *shader);
 void _gpu_raytrace_as_init();
 void _gpu_raytrace_as_add(gpu_buffer_t *vb, gpu_buffer_t *ib, mat4_t transform);
 void _gpu_raytrace_as_build(gpu_buffer_t *vb_full, gpu_buffer_t *ib_full);
-void gpu_raytrace_set_textures(gpu_texture_t *tex0, gpu_texture_t *tex1, gpu_texture_t *tex2, gpu_texture_t *texenv, gpu_texture_t *texsobol,
-                               gpu_texture_t *texscramble, gpu_texture_t *texrank);
 void _gpu_raytrace_dispatch_rays(gpu_texture_t *render_target, buffer_t *buffer);
 
 uint32_t gpu_vertex_data_size(gpu_vertex_data_t data);
@@ -264,3 +264,4 @@ extern uint32_t        constant_buffer_index;
 extern gpu_texture_t   framebuffers[GPU_FRAMEBUFFER_COUNT];
 extern gpu_texture_t   framebuffer_depth;
 extern uint32_t        framebuffer_index;
+

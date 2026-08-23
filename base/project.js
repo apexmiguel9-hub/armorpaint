@@ -1,4 +1,3 @@
-
 function get_version_code() {
 	const now   = new Date();
 	const year  = now.getFullYear().toString().slice(-2);
@@ -52,8 +51,14 @@ else if (platform == "linux") {
 	project.add_cfiles("sources/backends/linux_system.*");
 	project.add_cfiles("sources/backends/posix_net.*");
 	project.add_cfiles("sources/backends/posix_thread.*");
-	project.add_cfiles("sources/backends/vulkan_gpu.*");
-	project.add_define("IRON_VULKAN");
+	if (graphics == "vulkan") {
+		project.add_cfiles("sources/backends/vulkan_gpu.*");
+		project.add_define("IRON_VULKAN");
+		project.add_lib("vulkan");
+	} else {
+		project.add_cfiles("sources/backends/opengl_gpu.*");
+		project.add_define("IRON_OPENGL");
+	}
 	project.add_define("_POSIX_C_SOURCE=200809L");
 	project.add_lib("X11");
 	project.add_lib("Xi");
@@ -61,7 +66,6 @@ else if (platform == "linux") {
 	project.add_lib("Xrandr");
 	project.add_lib("ssl");
 	project.add_lib("crypto");
-	project.add_lib("vulkan");
 	if (flags.with_audio) {
 		project.add_lib("asound");
 		project.add_cfiles("sources/backends/linux_audio.*");
@@ -92,14 +96,26 @@ else if (platform == "ios") {
 else if (platform == "android") {
 	project.add_cfiles("sources/backends/android_system.*");
 	project.add_cfiles("sources/backends/posix_thread.*");
-	project.add_cfiles("sources/backends/vulkan_gpu.*");
+	if (graphics == "opengl") {
+		project.add_cfiles("sources/backends/opengl_gpu.*");
+		project.add_define("IRON_OPENGL");
+		project.add_define("IRON_OPENGL_ES");
+		project.add_define("IRON_EGL");
+		project.add_define("KINC_OPENGL");
+		project.add_define("KINC_OPENGL_ES");
+		project.add_define("KINC_EGL");
+	} else {
+		project.add_cfiles("sources/backends/vulkan_gpu.*");
+		project.add_define("IRON_VULKAN");
+		project.add_lib("vulkan");
+	}
+	project.add_cfiles("sources/backends/android_system.*");
+	project.add_cfiles("sources/backends/posix_thread.*");
 	project.add_cfiles("sources/backends/android_file_dialog.c");
 	project.add_cfiles("sources/backends/android_net.c");
 	project.add_cfiles("sources/backends/android_native_app_glue.c");
 	project.add_define("IRON_ANDROID");
-	project.add_define("IRON_VULKAN");
 	project.add_define("VK_USE_PLATFORM_ANDROID_KHR");
-	project.add_lib("vulkan");
 	project.add_lib("log");
 	project.add_lib("android");
 	if (flags.with_audio) {
@@ -116,7 +132,6 @@ else if (platform == "wasm") {
 	project.add_cfiles("sources/backends/webgpu_gpu.*");
 	project.add_define("IRON_WASM");
 	project.add_define("IRON_WEBGPU");
-	project.add_define("NO_GC");
 	project.add_cfiles("sources/miniclib/**");
 	project.add_include_dir("sources/miniclib");
 	project.add_assets("sources/backends/data/wasm/*");
@@ -180,7 +195,6 @@ if (flags.export_version_info) {
 	let data = `{ "sha": "${sha}", "date": "${date}" }`;
 	fs_ensuredir(dir);
 	fs_writefile(dir + "/version.json", data);
-	// Adds version.json to embed.txt list
 	project.add_assets(dir + "/version.json", {destination : "data/{name}"});
 }
 
@@ -220,7 +234,7 @@ if (flags.with_eval) {
 }
 
 if (flags.with_bc7) {
-	project.add_define("WITH_BC7");
+	project.add_define("WITH_B107");
 	project.add_cfiles("sources/libs/bc7enc.c");
 }
 
@@ -256,7 +270,6 @@ if (flags.with_nfd && (platform == "windows" || platform == "linux" || platform 
 		project.add_include_dir("/usr/include/cairo");
 		project.add_include_dir("/usr/include/gdk-pixbuf-2.0");
 		project.add_include_dir("/usr/include/atk-1.0");
-		project.add_include_dir("/usr/lib64/glib-2.0/include");
 		project.add_include_dir("/usr/lib/glib-2.0/include");
 		project.add_include_dir("/usr/include/harfbuzz");
 		project.add_lib("gtk-3");
@@ -285,3 +298,4 @@ if (flags.with_video_write) {
 
 project.flatten();
 return project;
+
