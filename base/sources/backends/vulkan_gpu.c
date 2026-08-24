@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
@@ -537,6 +538,7 @@ static bool unified_memory = false;
 void     iron_vulkan_get_instance_extensions(const char **extensions, int *index);
 VkBool32 iron_vulkan_get_physical_device_presentation_support(VkPhysicalDevice physical_device, uint32_t queue_family_index);
 VkResult iron_vulkan_create_surface(VkInstance instance, VkSurfaceKHR *surface);
+bool     iron_android_window_ready(void);
 
 static VkFormat convert_image_format(gpu_texture_format_t format) {
 	switch (format) {
@@ -1177,6 +1179,20 @@ static void create_swapchain() {
 	}
 }
 
+static void wait_for_window_if_gone(void) {
+	if (iron_android_window_ready()) {
+		return;
+	}
+	static int wfg_log_n = 0;
+	if (wfg_log_n++ < 3) {
+		iron_log("shim: window gone (picker/backgrounded) - pausing render until it returns");
+	}
+	while (!iron_android_window_ready()) {
+		usleep(16000);
+	}
+	iron_log("shim: window back - recreating swapchain");
+}
+
 static void acquire_next_image() {
 	VkResult err = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, framebuffer_available_semaphore, VK_NULL_HANDLE, (uint32_t *)&framebuffer_index);
 	if (err == VK_ERROR_SURFACE_LOST_KHR || err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR || surface_destroyed) {
@@ -1184,6 +1200,7 @@ static void acquire_next_image() {
 		surface_destroyed        = surface_destroyed || (err == VK_ERROR_SURFACE_LOST_KHR);
 		framebuffer_wait_pending = false;
 		gpu_in_use               = false;
+		wait_for_window_if_gone();
 		create_swapchain();
 		gpu_in_use = true;
 		acquire_next_image();
@@ -1193,6 +1210,7 @@ static void acquire_next_image() {
 		iron_log("shim: acquire idx=%u >= usable=%u -> recreate", framebuffer_index, window_image_count);
 		framebuffer_wait_pending = false;
 		gpu_in_use               = false;
+		wait_for_window_if_gone();
 		create_swapchain();
 		gpu_in_use = true;
 		acquire_next_image();

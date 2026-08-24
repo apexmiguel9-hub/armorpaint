@@ -129,8 +129,17 @@ iron_display_mode_t iron_display_current_mode(int display) {
 	return mode;
 }
 
+bool iron_android_window_ready(void) {
+	return app != NULL && app->window != NULL;
+}
+
 VkResult iron_vulkan_create_surface(VkInstance instance, VkSurfaceKHR *surface) {
-	assert(app->window != NULL);
+	if (!iron_android_window_ready()) {
+		// Window destroyed (e.g. system file picker in front of us). Refuse to
+		// hand a NULL ANativeWindow to the driver - that is an instant SIGSEGV
+		// inside CreateAndroidSurfaceKHR.
+		return VK_ERROR_SURFACE_LOST_KHR;
+	}
 	VkAndroidSurfaceCreateInfoKHR createInfo = {0};
 	createInfo.sType                         = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
 	createInfo.pNext                         = NULL;
@@ -942,7 +951,7 @@ int iron_android_width() {
 	if (iron_vulkan_get_size(&width, &height)) {
 		return width;
 	}
-	return ANativeWindow_getWidth(app->window);
+	return iron_android_window_ready() ? ANativeWindow_getWidth(app->window) : 1;
 }
 
 int iron_android_height() {
@@ -950,7 +959,7 @@ int iron_android_height() {
 	if (iron_vulkan_get_size(&width, &height)) {
 		return height;
 	}
-	return ANativeWindow_getHeight(app->window);
+	return iron_android_window_ready() ? ANativeWindow_getHeight(app->window) : 1;
 }
 
 static char internal_data_path[512];
