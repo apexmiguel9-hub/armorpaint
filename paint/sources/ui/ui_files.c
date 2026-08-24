@@ -453,6 +453,10 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 
 			f32            uix     = g_ui->_x;
 			f32            uiy     = g_ui->_y;
+			// Actual on-screen cell size for the rubber-band hit test; branches
+			// below override it when they draw real thumbnails
+			f32            sb_cw   = 50 * UI_SCALE() * rect->w / (float)rect->h;
+			f32            sb_ch   = 50 * UI_SCALE();
 			ui_state_t     state   = UI_STATE_IDLE;
 			bool           generic = true;
 			gpu_texture_t *icon    = NULL;
@@ -499,6 +503,8 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_files_draw_multi_border();
 					}
 					state = ui_image(icon, 0xffffffff, w * UI_SCALE());
+					sb_ch = w * UI_SCALE();
+					sb_cw = sb_ch * icon->width / (float)icon->height;
 					if (g_ui->is_hovered) {
 						ui_tooltip_image(icon, 0);
 						ui_tooltip(f);
@@ -573,6 +579,8 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_files_draw_multi_border();
 					}
 					state = ui_image(icon, 0xffffffff, w * UI_SCALE());
+					sb_ch = w * UI_SCALE();
+					sb_cw = sb_ch * icon->width / (float)icon->height;
 					if (g_ui->is_hovered) {
 						ui_tooltip_image(icon, 0);
 						ui_tooltip(f);
@@ -615,6 +623,8 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_files_draw_multi_border();
 					}
 					state   = ui_image(icon, 0xffffffff, icon->height * UI_SCALE());
+					sb_ch   = icon->height * UI_SCALE();
+					sb_cw   = icon->width * UI_SCALE();
 					generic = false;
 				}
 			}
@@ -635,8 +645,7 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 			if (ui_files_select_box && !is_folder) {
 				// Rubber band: add every cell the box passes over once it becomes a drag
 				if (sb_stroke && sb_moved && mouse_down("left")) {
-					i32  cw  = 50 * UI_SCALE();
-					bool hov = sel_mw >= uix && sel_mw < uix + cw && sel_mh >= uiy && sel_mh < uiy + cw;
+					bool hov = sel_mw >= uix && sel_mw < uix + sb_cw && sel_mh >= uiy && sel_mh < uiy + sb_ch;
 					if (hov && !ui_files_multi_has(cell_path)) {
 						ui_files_multi_toggle(cell_path);
 					}
