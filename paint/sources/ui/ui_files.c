@@ -321,6 +321,15 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	gc_root(ui_files_last_search);
 	handle->changed = false;
 
+	{ // TEMP diagnostics
+		static bool sb_auto = false;
+		if (!sb_auto && sys_time() > 8.0) {
+			sb_auto             = true;
+			ui_files_select_box = true;
+			iron_log("SB auto-enabled\n");
+		}
+	}
+
 	if (ui_files_select_pending != NULL) {
 		ui_files_selected = -1;
 		for (i32 i = 0; i < ui_files_files->length; ++i) {
