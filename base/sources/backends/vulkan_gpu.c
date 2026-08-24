@@ -1189,6 +1189,10 @@ static void wait_for_window_if_gone(void) {
 	}
 	while (!iron_android_window_ready()) {
 		usleep(16000);
+		// Pump lifecycle events from this thread: INIT_WINDOW is dispatched
+		// here, so a bare sleep would deadlock (the window would never come
+		// back and Android would raise an ANR).
+		iron_internal_handle_messages();
 	}
 	iron_log("shim: window back - recreating swapchain");
 }
