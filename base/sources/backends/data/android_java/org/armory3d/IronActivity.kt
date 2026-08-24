@@ -37,6 +37,9 @@ import kotlin.math.log
 import android.app.AlertDialog
 import android.database.Cursor
 import android.provider.OpenableColumns
+import android.os.Environment
+import android.provider.Settings
+import android.Manifest
 
 class ErrorActivity: Activity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -157,6 +160,7 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 		hideSystemUI()
 		instance = this
 		inputManager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+		requestStorageAccess()
 		isDisabledStickyImmersiveMode = try {
 			val ai: ApplicationInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
 			val bundle: Bundle = ai.metaData
@@ -183,6 +187,27 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 
 	private fun hideSystemUI() {
 		window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+	}
+
+	// The built-in file browser reads shared storage directly, which requires
+	// all-files access (Android 11+) or READ_EXTERNAL_STORAGE (Android 10).
+	private fun requestStorageAccess() {
+		if (Build.VERSION.SDK_INT >= 30) {
+			if (!Environment.isExternalStorageManager()) {
+				try {
+					startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+				}
+				catch (e: Exception) {
+					try {
+						startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+					}
+					catch (e2: Exception) {}
+				}
+			}
+		}
+		else if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+			requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 2)
+		}
 	}
 
 	private fun delayedHideSystemUI() {

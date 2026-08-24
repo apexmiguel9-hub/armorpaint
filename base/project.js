@@ -106,7 +106,11 @@ else if (platform == "android") {
 		project.add_lib("OpenSLES");
 	}
 	project.target_options.android.package     = flags.package;
-	project.target_options.android.permissions = [ "android.permission.INTERNET" ];
+	project.target_options.android.permissions = [
+	    "android.permission.INTERNET",
+	    "android.permission.READ_EXTERNAL_STORAGE",
+	    "android.permission.MANAGE_EXTERNAL_STORAGE",
+	];
 	project.target_options.android.versionCode = get_version_code();
 	project.target_options.android.versionName = get_version_code() + "";
 }
