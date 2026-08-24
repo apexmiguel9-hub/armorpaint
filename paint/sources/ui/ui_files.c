@@ -23,6 +23,45 @@ bool            ui_files_show_extensions = false;
 bool            ui_files_offline         = false;
 ui_handle_t    *_ui_files_file_browser_handle;
 
+// Multi-selection for the file browser (mobile-style): long-press a file and
+// pick "Select", then import the whole batch from the toolbar.
+string_array_t *ui_files_multi_select = NULL;
+
+void ui_files_multi_toggle(char *path) {
+	if (ui_files_multi_select == NULL) {
+		ui_files_multi_select = string_array_create(0);
+		gc_root(ui_files_multi_select);
+	}
+	if (string_array_index_of(ui_files_multi_select, path) >= 0) {
+		string_array_remove(ui_files_multi_select, path);
+	}
+	else {
+		string_array_push(ui_files_multi_select, string_copy(path));
+	}
+}
+
+bool ui_files_multi_has(char *path) {
+	return ui_files_multi_select != NULL && string_array_index_of(ui_files_multi_select, path) >= 0;
+}
+
+i32 ui_files_multi_count(void) {
+	return ui_files_multi_select == NULL ? 0 : ui_files_multi_select->length;
+}
+
+void ui_files_multi_clear(void) {
+	if (ui_files_multi_select != NULL) {
+		ui_files_multi_select->length = 0;
+	}
+}
+
+static void ui_files_draw_multi_border() {
+	i32 c = 0xff38c938;
+	ui_fill(-2, -2, 54, 2, c);
+	ui_fill(-2, 52, 54, 2, c);
+	ui_fill(-2, 0, 2, 54, c);
+	ui_fill(52, -2, 2, 56, c);
+}
+
 void ui_files_release_keys() {
 	// File dialog may prevent firing key up events
 	keyboard_up_listener(KEY_CODE_SHIFT);
@@ -370,6 +409,9 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_fill(-2, 0, 2, w + 4, g_theme->HIGHLIGHT_COL);
 						ui_fill(w + 2, -2, 2, w + 6, g_theme->HIGHLIGHT_COL);
 					}
+					if (ui_files_multi_has(string("%s%s%s", handle->text, PATH_SEP, f))) {
+						ui_files_draw_multi_border();
+					}
 					state = ui_image(icon, 0xffffffff, w * UI_SCALE());
 					if (g_ui->is_hovered) {
 						ui_tooltip_image(icon, 0);
@@ -441,6 +483,9 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_fill(-2, 0, 2, w + 4, g_theme->HIGHLIGHT_COL);
 						ui_fill(w + 2, -2, 2, w + 6, g_theme->HIGHLIGHT_COL);
 					}
+					if (ui_files_multi_has(string("%s%s%s", handle->text, PATH_SEP, f))) {
+						ui_files_draw_multi_border();
+					}
 					state = ui_image(icon, 0xffffffff, w * UI_SCALE());
 					if (g_ui->is_hovered) {
 						ui_tooltip_image(icon, 0);
@@ -480,12 +525,18 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 						ui_fill(-2, 0, 2, w + 4, g_theme->HIGHLIGHT_COL);
 						ui_fill(w + 2, -2, 2, w + 6, g_theme->HIGHLIGHT_COL);
 					}
+					if (ui_files_multi_has(string("%s%s%s", handle->text, PATH_SEP, f))) {
+						ui_files_draw_multi_border();
+					}
 					state   = ui_image(icon, 0xffffffff, icon->height * UI_SCALE());
 					generic = false;
 				}
 			}
 
 			if (generic) {
+				if (!is_folder && ui_files_multi_has(string("%s%s%s", handle->text, PATH_SEP, f))) {
+					ui_files_draw_multi_border();
+				}
 				state = ui_sub_image(icons, col, 50 * UI_SCALE(), rect->x, rect->y, rect->w, rect->h);
 			}
 

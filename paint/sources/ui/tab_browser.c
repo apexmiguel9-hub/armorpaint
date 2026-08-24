@@ -86,8 +86,24 @@ void tab_browser_draw_set_as_envmap() {
 	sys_notify_on_next_frame(&tab_browser_draw_set_as_envmap_on_next_frame, NULL);
 }
 
+void tab_browser_import_selected() {
+	if (ui_files_multi_count() == 0) {
+		return;
+	}
+	console_toast(string("%s (%d)", tr("Importing"), ui_files_multi_count()));
+	for (i32 i = 0; i < ui_files_multi_select->length; ++i) {
+		import_asset_run(ui_files_multi_select->buffer[i], -1.0, -1.0, true, true, NULL);
+	}
+	ui_files_multi_clear();
+}
+
 void tab_browser_draw_context_menu_draw() {
 	char *file = _tab_browser_draw_file;
+	if (!iron_is_directory(file)) {
+		if (ui_menu_button(ui_files_multi_has(file) ? tr("Deselect") : tr("Select"), "", ICON_CHECK)) {
+			ui_files_multi_toggle(file);
+		}
+	}
 	if (ui_menu_button(tr("Import"), "", ICON_IMPORT)) {
 		import_asset_run(file, -1.0, -1.0, true, true, NULL);
 	}
@@ -266,6 +282,22 @@ void tab_browser_draw(ui_handle_t *htab) {
 			}
 			if (!string_equals(tab_browser_hsearch->text, "") && (ui_button(tr("X"), UI_ALIGN_CENTER, "") || g_ui->is_escape_down)) {
 				tab_browser_hsearch->text = "";
+			}
+		}
+
+		if (ui_files_multi_count() > 0) {
+			f32_array_t *row = f32_array_create_from_raw(
+			    (f32[]){
+			        0.7,
+			        0.3,
+			    },
+			    2);
+			ui_row(row);
+			if (ui_button(string("%s (%d)", tr("Import"), ui_files_multi_count()), UI_ALIGN_CENTER, "")) {
+				tab_browser_import_selected();
+			}
+			if (ui_button(tr("Clear"), UI_ALIGN_CENTER, "")) {
+				ui_files_multi_clear();
 			}
 		}
 
