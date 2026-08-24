@@ -427,11 +427,11 @@ void config_apply() {
 }
 
 i32 config_get_super_sample_quality(f32 f) {
-	return f == 0.25 ? 0 : f == 0.5 ? 1 : f == 1.0 ? 2 : f == 1.5 ? 3 : f == 2.0 ? 4 : 5;
+	return f == 0.25 ? 0 : f == 0.5 ? 1 : f == 0.75 ? 2 : f == 1.0 ? 3 : f == 1.5 ? 4 : f == 2.0 ? 5 : 6;
 }
 
 f32 config_get_super_sample_size(i32 i) {
-	return i == 0 ? 0.25 : i == 1 ? 0.5 : i == 2 ? 1.0 : i == 3 ? 1.5 : i == 4 ? 2.0 : 4.0;
+	return i == 0 ? 0.25 : i == 1 ? 0.5 : i == 2 ? 0.75 : i == 3 ? 1.0 : i == 4 ? 1.5 : i == 5 ? 2.0 : 4.0;
 }
 
 i32 config_texture_res_size(i32 pos) {

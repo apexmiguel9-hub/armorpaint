@@ -643,12 +643,13 @@ void box_preferences_viewport_tab() {
 	    (void *[]){
 	        "0.25x",
 	        "0.5x",
+	        "0.75x",
 	        "1.0x",
 	        "1.5x",
 	        "2.0x",
 	        "4.0x",
 	    },
-	    6);
+	    7);
 	ui_combo(h_supersample, supersample_combo, tr("Super Sample"), true, UI_ALIGN_LEFT, true);
 	if (h_supersample->changed) {
 		g_config->rp_supersample = config_get_super_sample_size(h_supersample->i);
