@@ -371,15 +371,21 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	}
 
 	f32 sb_grid_top = g_ui->_window_y + g_ui->_y - 8 * UI_SCALE();
-	if (ui_files_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
-		iron_log("SB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
-		sb_stroke  = true;
-		sb_in_cell = false;
-		sb_moved   = false;
-		sb_x0      = sel_mw;
-		sb_y0      = sel_mh;
-		gc_unroot(sb_origin);
-		sb_origin = NULL;
+	if (ui_files_select_box && mouse_down("left") && !sb_stroke) {
+		static i32 sb_dbg = 0;
+		if (sb_dbg++ % 15 == 0) {
+			iron_log("SB try m=%.0f,%.0f top=%.0f wy=%.0f y=%.0f\n", sel_mw, sel_mh, sb_grid_top, g_ui->_window_y, g_ui->_y);
+		}
+		if (sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+			iron_log("SB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
+			sb_stroke  = true;
+			sb_in_cell = false;
+			sb_moved   = false;
+			sb_x0      = sel_mw;
+			sb_y0      = sel_mh;
+			gc_unroot(sb_origin);
+			sb_origin = NULL;
+		}
 	}
 	else if (sb_stroke && mouse_down("left")) {
 		if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
