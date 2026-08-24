@@ -8,6 +8,44 @@ i32            _tab_textures_draw_i;
 bool           _tab_textures_draw_is_packed;
 i32            tab_textures_drag_pos = -1;
 
+// Multi-selection of texture assets: long-press > Select/Deselect. Dragging a
+// selected asset into the node editor drops ALL selected textures as image
+// nodes at once (mini Node Wrangler).
+string_array_t *tab_textures_multi_select = NULL;
+
+void tab_textures_multi_toggle(char *file) {
+	if (tab_textures_multi_select == NULL) {
+		tab_textures_multi_select = string_array_create(0);
+		gc_root(tab_textures_multi_select);
+	}
+	if (string_array_index_of(tab_textures_multi_select, file) >= 0) {
+		string_array_remove(tab_textures_multi_select, file);
+	}
+	else {
+		string_array_push(tab_textures_multi_select, string_copy(file));
+	}
+}
+
+bool tab_textures_multi_has(char *file) {
+	return tab_textures_multi_select != NULL && string_array_index_of(tab_textures_multi_select, file) >= 0;
+}
+
+bool tab_textures_try_batch_node_drop(asset_t *dragged) {
+	if (!tab_textures_multi_has(dragged->file)) {
+		return false;
+	}
+	for (i32 i = 0; i < tab_textures_multi_select->length; ++i) {
+		char *file = tab_textures_multi_select->buffer[i];
+		for (i32 j = 0; j < g_project->_->assets->length; ++j) {
+			if (string_equals(g_project->_->assets->buffer[j]->file, file)) {
+				ui_nodes_accept_asset_drop(j);
+				break;
+			}
+		}
+	}
+	return true;
+}
+
 void tab_textures_draw_set_as_envmap(void *_) {
 	import_envmap_run(_tab_textures_draw_asset->file, _tab_textures_draw_img);
 }
@@ -116,6 +154,9 @@ void tab_textures_delete_texture(asset_t *asset) {
 }
 
 void tab_textures_draw_context_menu() {
+	if (ui_menu_button(tab_textures_multi_has(_tab_textures_draw_asset->file) ? tr("Deselect") : tr("Select"), "", ICON_CHECK)) {
+		tab_textures_multi_toggle(_tab_textures_draw_asset->file);
+	}
 	if (ui_menu_button(tr("Export"), "", ICON_EXPORT)) {
 		ui_files_show("png", true, false, &tab_textures_draw_export);
 	}
@@ -300,6 +341,21 @@ void tab_textures_draw(ui_handle_t *htab) {
 						ui_fill(0, w - off + 2, w + 3, 2 + off, g_theme->HIGHLIGHT_COL);
 						ui_fill(0, 0, 2, w + 3, g_theme->HIGHLIGHT_COL);
 						ui_fill(w + 2, 0, 2, w + 4, g_theme->HIGHLIGHT_COL);
+						g_ui->_x = _uix;
+						g_ui->_y = _uiy;
+					}
+
+					if (tab_textures_multi_has(asset->file)) {
+						f32 _uix = g_ui->_x;
+						f32 _uiy = g_ui->_y;
+						g_ui->_x = uix;
+						g_ui->_y = uiy;
+						i32 w    = 50;
+						i32 c    = 0xff38c938;
+						ui_fill(0, -2, w + 3, 2, c);
+						ui_fill(0, w + 1, w + 3, 2, c);
+						ui_fill(0, 0, 2, w + 3, c);
+						ui_fill(w + 2, 0, 2, w + 4, c);
 						g_ui->_x = _uix;
 						g_ui->_y = _uiy;
 					}

@@ -275,7 +275,9 @@ void base_update(void *_) {
 
 			// Create image texture
 			if (context_in_nodes()) {
-				ui_nodes_accept_asset_drop(array_index_of(g_project->_->assets, base_drag_asset));
+				if (!tab_textures_try_batch_node_drop(base_drag_asset)) {
+					ui_nodes_accept_asset_drop(array_index_of(g_project->_->assets, base_drag_asset));
+				}
 			}
 			else if (context_in_3d_view()) {
 				if (ends_with(to_lower_case(base_drag_asset->file), ".hdr")) {
