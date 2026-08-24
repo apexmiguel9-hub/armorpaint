@@ -24,8 +24,10 @@ bool            ui_files_offline         = false;
 ui_handle_t    *_ui_files_file_browser_handle;
 
 // Multi-selection for the file browser (mobile-style): long-press a file and
-// pick "Select", then import the whole batch from the toolbar.
+// pick "Select" to enter selection mode - afterwards a single tap toggles the
+// tapped file in/out of the batch, and Import (N) imports everything at once.
 string_array_t *ui_files_multi_select = NULL;
+static bool     ui_files_multi_mode   = false;
 
 void ui_files_multi_toggle(char *path) {
 	if (ui_files_multi_select == NULL) {
@@ -38,6 +40,7 @@ void ui_files_multi_toggle(char *path) {
 	else {
 		string_array_push(ui_files_multi_select, string_copy(path));
 	}
+	ui_files_multi_mode = ui_files_multi_select->length > 0;
 }
 
 bool ui_files_multi_has(char *path) {
@@ -52,6 +55,7 @@ void ui_files_multi_clear(void) {
 	if (ui_files_multi_select != NULL) {
 		ui_files_multi_select->length = 0;
 	}
+	ui_files_multi_mode = false;
 }
 
 static void ui_files_draw_multi_border() {
@@ -544,7 +548,11 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 				context_menu(string("%s%s%s", handle->text, PATH_SEP, f));
 			}
 
-			if (state == UI_STATE_STARTED) {
+			if (state == UI_STATE_STARTED && !is_folder && ui_files_multi_mode) {
+				// Selection mode: a tap toggles the file in/out of the batch
+				ui_files_multi_toggle(string("%s%s%s", handle->text, PATH_SEP, f));
+			}
+			else if (state == UI_STATE_STARTED) {
 				if (drag_files) {
 					base_drag_off_x = -(mouse_x - uix - g_ui->_window_x - 3);
 					base_drag_off_y = -(mouse_y - uiy - g_ui->_window_y + 1);
