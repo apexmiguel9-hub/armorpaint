@@ -759,6 +759,8 @@ void                         render_path_paint_restore_plane_mesh();
 void                         render_path_paint_bind_layers();
 void                         render_path_paint_unbind_layers();
 void                         render_path_paint_dilate(bool base, bool nor_pack);
+extern bool                  render_path_paint_dilation_pending;
+extern f64                   render_path_paint_last_dab_time;
 void                         export_texture_run(char *path, bool bake_material);
 void                         ui_box_render();
 void                         ui_box_show_message(char *title, char *text, bool copyable);

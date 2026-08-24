@@ -2,7 +2,8 @@
 #include "../global.h"
 
 bool             render_path_paint_dilated               = true;
-static bool      render_path_paint_dilation_pending      = false;
+bool             render_path_paint_dilation_pending      = false;
+f64              render_path_paint_last_dab_time         = 0.0;
 mesh_object_t   *render_path_paint_painto                = NULL;
 mesh_object_t   *render_path_paint_planeo                = NULL;
 u8_array_t      *render_path_paint_visibles              = NULL;
@@ -842,11 +843,11 @@ void render_path_paint_end() {
 		return;
 	}
 
-	// Flush deferred dilation when pdirty has stayed at 1 for two consecutive
-	// frames (no new dab arrived => stroke truly ended). Mid-stroke gaps only
-	// ever spend ONE frame at pdirty==1 because touch events reset it to 2.
-	static i32 _prev_pdirty = 0;
-	if (render_path_paint_dilation_pending && g_context->pdirty == 1 && _prev_pdirty == 1) {
+	// Flush deferred dilation once the stroke has truly stopped (no fresh dab
+	// for ~250ms). Frame-count heuristics misfire on touch input: every dab
+	// sets pdirty=1, so "pdirty==1 twice" is true on EVERY stroke frame and
+	// ran the 6 fullscreen dilate passes mid-stroke (~60ms/frame on Mali).
+	if (render_path_paint_dilation_pending && g_context->pdirty <= 1 && (sys_time() - render_path_paint_last_dab_time) > 0.25) {
 		render_path_paint_dilation_pending = false;
 		render_path_paint_dilate(true, true);
 		render_path_paint_dilated = true; // seams fixed; begin() predilate not needed
@@ -855,7 +856,6 @@ void render_path_paint_end() {
 	else if (g_context->pdirty > 0) {
 		layers_update_linked_layers();
 	}
-	_prev_pdirty = g_context->pdirty;
 
 	g_context->pdirty--;
 }

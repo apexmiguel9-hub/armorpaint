@@ -198,7 +198,8 @@ void brush_output_node_run() {
 	if (g_context->painted <= 1) {
 		g_context->pdirty = 1;
 		g_context->rdirty = 2;
-		sculpt_push_undo  = true;
+		render_path_paint_last_dab_time = sys_time();
+		sculpt_push_undo                = true;
 	}
 }
 
