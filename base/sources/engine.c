@@ -1100,14 +1100,17 @@ void camera_object_remove(camera_object_t *raw) {
 }
 
 void camera_object_proj_jitter(camera_object_t *raw) {
-	i32 w  = render_path_current_w;
-	i32 h  = render_path_current_h;
+	i32 w = render_path_current_w;
+	i32 h = render_path_current_h;
 	raw->p = raw->no_jitter_p;
-	i32 i  = raw->frame % 2;
-	f32 x  = i == 0 ? -0.5 : 0.5;
-	f32 y  = i == 0 ? 0.5 : -0.5;
-	raw->p.m20 += x / w;
-	raw->p.m21 += y / h;
+	// 8-point Halton(2,3)-0.5 sequence: each rendered frame projects from a
+	// different sub-pixel position, so the temporal accumulator in taa_pass
+	// reconstructs true anti-aliasing instead of averaging 2 flipped samples.
+	static const f32 jitter_x[8] = {0.0f, -0.25f, 0.25f, -0.375f, 0.125f, -0.125f, 0.375f, -0.4375f};
+	static const f32 jitter_y[8] = {-0.1667f, 0.1667f, -0.3889f, -0.0556f, 0.2778f, -0.2778f, 0.0556f, 0.3889f};
+	i32 i                         = raw->frame % 8;
+	raw->p.m20 += jitter_x[i] / w;
+	raw->p.m21 += jitter_y[i] / h;
 }
 
 void camera_object_build_mat(camera_object_t *raw) {
