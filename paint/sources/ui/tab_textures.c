@@ -410,12 +410,16 @@ void tab_textures_draw(ui_handle_t *htab) {
 					}
 
 					if (tab_textures_select_box) {
-						// Rubber band: add every slot the box passes over once it becomes a drag
+						// Rubber band: select every slot intersecting the rectangle
 						// Drawn size: height is always slotw; width matches ui_sub_image's aspect math
 						f32 tch = slotw;
 						f32 tcw = sw > 0 ? slotw : slotw * img->width / (float)img->height;
 						if (sb_stroke && sb_moved && mouse_down("left")) {
-							bool hov = sel_mw >= uix && sel_mw < uix + tcw && sel_mh >= uiy && sel_mh < uiy + tch;
+							f32 rx0 = math_min(sb_x0, sel_mw);
+							f32 ry0 = math_min(sb_y0, sel_mh);
+							f32 rx1 = math_max(sb_x0, sel_mw);
+							f32 ry1 = math_max(sb_y0, sel_mh);
+							bool hov = rx0 < uix + tcw && rx1 > uix && ry0 < uiy + tch && ry1 > uiy;
 							if (hov && !tab_textures_multi_has(asset->file)) {
 								tab_textures_multi_toggle(asset->file);
 							}

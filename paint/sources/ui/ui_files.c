@@ -321,15 +321,6 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	gc_root(ui_files_last_search);
 	handle->changed = false;
 
-	{ // TEMP diagnostics
-		static bool sb_auto = false;
-		if (!sb_auto && sys_time() > 8.0) {
-			sb_auto             = true;
-			ui_files_select_box = true;
-			iron_log("SB auto-enabled\n");
-		}
-	}
-
 	if (ui_files_select_pending != NULL) {
 		ui_files_selected = -1;
 		for (i32 i = 0; i < ui_files_files->length; ++i) {
@@ -652,15 +643,14 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 			char *cell_path = string("%s%s%s", handle->text, PATH_SEP, f);
 
 			if (ui_files_select_box && !is_folder) {
-				// Rubber band: add every cell the box passes over once it becomes a drag
+				// Rubber band: select every cell intersecting the rectangle
 				if (sb_stroke && sb_moved && mouse_down("left")) {
-					bool hov = sel_mw >= uix && sel_mw < uix + sb_cw && sel_mh >= uiy && sel_mh < uiy + sb_ch;
-					static i32 sb_dbg3 = 0;
-					if (!hov && sb_dbg3++ % 40 == 0) {
-						iron_log("SB miss m=%.0f,%.0f uix=%.0f uiy=%.0f cw=%.0f ch=%.0f\n", sel_mw, sel_mh, uix, uiy, sb_cw, sb_ch);
-					}
+					f32 rx0 = math_min(sb_x0, sel_mw);
+					f32 ry0 = math_min(sb_y0, sel_mh);
+					f32 rx1 = math_max(sb_x0, sel_mw);
+					f32 ry1 = math_max(sb_y0, sel_mh);
+					bool hov = rx0 < uix + sb_cw && rx1 > uix && ry0 < uiy + sb_ch && ry1 > uiy;
 					if (hov && !ui_files_multi_has(cell_path)) {
-						iron_log("SB add %s\n", f);
 						ui_files_multi_toggle(cell_path);
 					}
 				}
