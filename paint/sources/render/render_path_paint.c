@@ -833,6 +833,12 @@ void render_path_paint_begin() {
 }
 
 void render_path_paint_end() {
+	extern void iron_cpu_boost(int active);
+	// Hold big-core frequency while the user is interacting (or just finished):
+	// schedutil drops A75 clocks mid-stroke because the render loop is
+	// GPU/fence-bound and shows little CPU load.
+	iron_cpu_boost(input_down || (sys_time() - render_path_paint_last_dab_time) < 3.0);
+
 	g_context->ddirty--;
 	g_context->rdirty--;
 

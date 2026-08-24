@@ -1152,6 +1152,47 @@ static void perf_pump_start() {
 	pthread_detach(t);
 }
 
+// Stroke-gated big-core load: pin one spinning thread per big core so schedutil
+// holds the A75 cluster near max frequency while painting. Without this the
+// governor keeps the big cores at ~850MHz mid-stroke (GPU-bound loop sleeps in
+// fence waits => low observed CPU load) and frame cost grows ~50%.
+#include <sched.h>
+#include <stdint.h>
+
+static volatile int iron_boost_active = 0;
+
+static void *iron_boost_spin(void *arg) {
+	int core = 6 + (int)(intptr_t)arg;
+	cpu_set_t set;
+	CPU_ZERO(&set);
+	CPU_SET(core, &set);
+	sched_setaffinity(0, sizeof(set), &set);
+	while (iron_boost_active) {
+		for (volatile int i = 0; i < 50000; ++i) {
+		}
+	}
+	return NULL;
+}
+
+void iron_cpu_boost(int active) {
+	static pthread_t t0, t1;
+	static bool      on = false;
+	if (active && !on) {
+		on                = true;
+		iron_boost_active = 1;
+		pthread_create(&t0, NULL, iron_boost_spin, (void *)(intptr_t)0);
+		pthread_create(&t1, NULL, iron_boost_spin, (void *)(intptr_t)1);
+		iron_log("PERF: cpu boost ON");
+	}
+	else if (!active && on) {
+		on                = false;
+		iron_boost_active = 0;
+		pthread_join(t0, NULL);
+		pthread_join(t1, NULL);
+		iron_log("PERF: cpu boost OFF");
+	}
+}
+
 void iron_init(iron_window_options_t *win) {
 	iron_mutex_init(&unicode_mutex);
 	gpu_init(win->depth_bits, win->vsync);
