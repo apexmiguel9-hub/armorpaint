@@ -74,6 +74,14 @@ bool ui_files_select_box = false;
 // release doesn't immediately clear-and-exit it.
 bool ui_files_sb_suppress = false;
 
+// Live rubber band in raw framebuffer coords, drawn by base_render's overlay
+// pass (the same way drag ghosts and the select-tool mask are drawn).
+bool ui_files_sb_show = false;
+f32  ui_files_sb_x0   = 0.0;
+f32  ui_files_sb_y0   = 0.0;
+f32  ui_files_sb_x1   = 0.0;
+f32  ui_files_sb_y1   = 0.0;
+
 void ui_files_release_keys() {
 	// File dialog may prevent firing key up events
 	keyboard_up_listener(KEY_CODE_SHIFT);
@@ -313,16 +321,6 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	gc_root(ui_files_last_search);
 	handle->changed = false;
 
-	// TEMP calibration: self-enable select-box shortly after launch
-	{
-		static bool sb_auto = false;
-		if (!sb_auto && sys_time() > 8.0) {
-			sb_auto             = true;
-			ui_files_select_box = true;
-			iron_log("SB auto-enabled\n");
-		}
-	}
-
 	if (ui_files_select_pending != NULL) {
 		ui_files_selected = -1;
 		for (i32 i = 0; i < ui_files_files->length; ++i) {
@@ -348,7 +346,9 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	static bool  sb_stroke  = false; // A press is being tracked in the grid area
 	static bool  sb_in_cell = false; // The press started on a file cell
 	static bool  sb_moved   = false; // The press turned into a drag
-	static f32   sb_x0      = 0.0;
+	static f32   sb_rx0     = 0.0;   // Raw framebuffer anchor for the overlay
+	static f32   sb_ry0     = 0.0;
+	static f32   sb_x0      = 0.0;   // Content-space anchor for sweep math
 	static f32   sb_y0      = 0.0;
 	static char *sb_origin  = NULL;
 	// Content-space pointer coords: cursor/draw space has the window scroll
@@ -356,24 +356,20 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	f32          sel_mw     = mouse_x - g_ui->_window_x;
 	f32          sel_mh     = mouse_y - g_ui->_window_y - g_ui->current_window->scroll_offset;
 
+	ui_files_sb_show = false;
+
 	if (mouse_released("left")) {
 		if (ui_files_sb_suppress) { // Release that enabled the mode via toolbar button
-			iron_log("SB release: suppressed\n");
 			ui_files_sb_suppress = false;
 		}
 		else if (ui_files_select_box && !sb_moved) {
 			if (sb_in_cell && sb_origin != NULL) { // Plain tap on a file: toggle it
-				iron_log("SB release: tap-toggle %s\n", sb_origin);
 				ui_files_multi_toggle(sb_origin);
 			}
 			else if (!sb_in_cell) { // Tap outside the file grid: clear and exit
-				iron_log("SB release: clear+exit\n");
 				ui_files_multi_clear();
 				ui_files_select_box = false;
 			}
-		}
-		else if (ui_files_select_box && sb_moved) {
-			iron_log("SB release: keep (%d selected)\n", ui_files_multi_count());
 		}
 		sb_stroke  = false;
 		sb_in_cell = false;
@@ -382,31 +378,32 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 		sb_origin = NULL;
 	}
 
-	// sel_mh is window-relative, so compare against _y directly (no _window_y)
+	// sel_mh is content-space, so compare against _y directly
 	f32 sb_grid_top = g_ui->_y - 8 * UI_SCALE();
-	if (ui_files_select_box && mouse_down("left") && !sb_stroke) {
-		static i32 sb_dbg = 0;
-		if (sb_dbg++ % 15 == 0) {
-			iron_log("SB try m=%.0f,%.0f top=%.0f wy=%.0f y=%.0f\n", sel_mw, sel_mh, sb_grid_top, g_ui->_window_y, g_ui->_y);
-		}
-		if (sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
-			iron_log("SB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
-			sb_stroke  = true;
-			sb_in_cell = false;
-			sb_moved   = false;
-			sb_x0      = sel_mw;
-			sb_y0      = sel_mh;
-			gc_unroot(sb_origin);
-			sb_origin = NULL;
-		}
+	if (ui_files_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+		sb_stroke  = true;
+		sb_in_cell = false;
+		sb_moved   = false;
+		sb_x0      = sel_mw;
+		sb_y0      = sel_mh;
+		sb_rx0     = mouse_x;
+		sb_ry0     = mouse_y;
+		gc_unroot(sb_origin);
+		sb_origin = NULL;
 	}
 	else if (sb_stroke && mouse_down("left")) {
 		if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
-			if (!sb_moved) {
-				iron_log("SB moved\n");
-			}
 			sb_moved = true;
 		}
+	}
+
+	// Feed the screen-space rubber band to base_render's overlay pass
+	if (ui_files_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+		ui_files_sb_show = true;
+		ui_files_sb_x0   = math_min(sb_rx0, mouse_x);
+		ui_files_sb_y0   = math_min(sb_ry0, mouse_y);
+		ui_files_sb_x1   = math_max(sb_rx0, mouse_x);
+		ui_files_sb_y1   = math_max(sb_ry0, mouse_y);
 	}
 
 	// Directory contents
@@ -648,6 +645,8 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 					sb_in_cell = true;
 					sb_x0      = sel_mw;
 					sb_y0      = sel_mh;
+					sb_rx0     = mouse_x;
+					sb_ry0     = mouse_y;
 					gc_unroot(sb_origin);
 					sb_origin = string_copy(cell_path);
 					gc_root(sb_origin);
@@ -735,27 +734,6 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 		}
 		if (handle->changed) {
 			break;
-		}
-	}
-
-	// Rubber band overlay
-	if (ui_files_select_box && sb_stroke && mouse_down("left")) {
-		f32 bx = math_min(sb_x0, sel_mw);
-		f32 by = math_min(sb_y0, sel_mh);
-		f32 bw = math_abs(sel_mw - sb_x0);
-		f32 bh = math_abs(sel_mh - sb_y0);
-		{
-			f32 ox = g_ui->_x, oy = g_ui->_y;
-			g_ui->_x = 0;
-			g_ui->_y = g_ui->current_window->scroll_offset;
-			ui_fill(sb_x0 - 8, sb_y0 - 8, 16, 16, 0xffff00ff); // MAGENTA anchor marker
-			ui_fill(sel_mw - 8, sel_mh - 8, 16, 16, 0xff00ffff); // CYAN current marker
-			static i32 sb_dbg2 = 0;
-			if (sb_dbg2++ % 20 == 0) {
-				iron_log("SB geo m=%.0f,%.0f wx=%.0f wy=%.0f sc=%.0f\n", sel_mw, sel_mh, g_ui->_window_x, g_ui->_window_y, g_ui->current_window->scroll_offset);
-			}
-			g_ui->_x = ox;
-			g_ui->_y = oy;
 		}
 	}
 

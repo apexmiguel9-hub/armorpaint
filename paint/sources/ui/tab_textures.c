@@ -50,6 +50,14 @@ bool tab_textures_try_batch_node_drop(asset_t *dragged) {
 // grid clears and exits.
 static bool tab_textures_select_box = false;
 
+// Live rubber band in raw framebuffer coords, drawn by base_render's overlay
+// pass (the same way drag ghosts and the select-tool mask are drawn).
+bool tab_textures_sb_show = false;
+f32  tab_textures_sb_x0   = 0.0;
+f32  tab_textures_sb_y0   = 0.0;
+f32  tab_textures_sb_x1   = 0.0;
+f32  tab_textures_sb_y1   = 0.0;
+
 void tab_textures_draw_set_as_envmap(void *_) {
 	import_envmap_run(_tab_textures_draw_asset->file, _tab_textures_draw_img);
 }
@@ -263,11 +271,6 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 		ui_end_sticky();
 
-		static i32 sb_geo = 0;
-		if (sb_geo++ % 300 == 0) {
-			iron_log("TSB geo win=%.0f,%.0f %.0fx%.0f y=%.0f\n", g_ui->_window_x, g_ui->_window_y, g_ui->_window_w, g_ui->_window_h, g_ui->_y);
-		}
-
 		char *search = to_lower_case(hsearch->text);
 
 		if (g_project->_->assets->length > 0) {
@@ -295,7 +298,9 @@ void tab_textures_draw(ui_handle_t *htab) {
 			static bool  sb_stroke  = false; // A press is being tracked in the grid area
 			static bool  sb_in_cell = false; // The press started on a slot
 			static bool  sb_moved   = false; // The press turned into a drag
-			static f32   sb_x0      = 0.0;
+			static f32   sb_rx0     = 0.0;   // Raw framebuffer anchor for the overlay
+			static f32   sb_ry0     = 0.0;
+			static f32   sb_x0      = 0.0;   // Content-space anchor for sweep math
 			static f32   sb_y0      = 0.0;
 			static char *sb_origin  = NULL;
 			// Content-space pointer coords: cursor/draw space has the window
@@ -303,26 +308,22 @@ void tab_textures_draw(ui_handle_t *htab) {
 			f32          sel_mw     = mouse_x - g_ui->_window_x;
 			f32          sel_mh     = mouse_y - g_ui->_window_y - g_ui->current_window->scroll_offset;
 
+			tab_textures_sb_show = false;
+
 			if (mouse_released("left")) {
 				if (sb_suppress) { // Release that enabled the mode via toolbar button
-					iron_log("TSB release: suppressed\n");
 					sb_suppress = false;
 				}
 				else if (tab_textures_select_box && !sb_moved) {
 					if (sb_in_cell && sb_origin != NULL) { // Plain tap on a slot: toggle it
-						iron_log("TSB release: tap-toggle %s\n", sb_origin);
 						tab_textures_multi_toggle(sb_origin);
 					}
 					else if (!sb_in_cell) { // Tap outside the slots: clear and exit
-						iron_log("TSB release: clear+exit\n");
 						if (tab_textures_multi_select != NULL) {
 							tab_textures_multi_select->length = 0;
 						}
 						tab_textures_select_box = false;
 					}
-				}
-				else if (tab_textures_select_box && sb_moved) {
-					iron_log("TSB release: keep (%d selected)\n", tab_textures_multi_select == NULL ? 0 : tab_textures_multi_select->length);
 				}
 				sb_stroke  = false;
 				sb_in_cell = false;
@@ -331,31 +332,32 @@ void tab_textures_draw(ui_handle_t *htab) {
 				sb_origin = NULL;
 			}
 
-			// sel_mh is window-relative, so compare against _y directly (no _window_y)
+			// sel_mh is content-space, so compare against _y directly
 			f32 sb_grid_top = g_ui->_y - 8 * UI_SCALE();
-			if (tab_textures_select_box && mouse_down("left") && !sb_stroke) {
-				static i32 sb_dbg = 0;
-				if (sb_dbg++ % 15 == 0) {
-					iron_log("TSB try m=%.0f,%.0f top=%.0f wy=%.0f y=%.0f\n", sel_mw, sel_mh, sb_grid_top, g_ui->_window_y, g_ui->_y);
-				}
-				if (sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
-					iron_log("TSB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
-					sb_stroke  = true;
-					sb_in_cell = false;
-					sb_moved   = false;
-					sb_x0      = sel_mw;
-					sb_y0      = sel_mh;
-					gc_unroot(sb_origin);
-					sb_origin = NULL;
-				}
+			if (tab_textures_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+				sb_stroke  = true;
+				sb_in_cell = false;
+				sb_moved   = false;
+				sb_x0      = sel_mw;
+				sb_y0      = sel_mh;
+				sb_rx0     = mouse_x;
+				sb_ry0     = mouse_y;
+				gc_unroot(sb_origin);
+				sb_origin = NULL;
 			}
 			else if (sb_stroke && mouse_down("left")) {
 				if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
-					if (!sb_moved) {
-						iron_log("TSB moved\n");
-					}
 					sb_moved = true;
 				}
+			}
+
+			// Feed the screen-space rubber band to base_render's overlay pass
+			if (tab_textures_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+				tab_textures_sb_show = true;
+				tab_textures_sb_x0   = math_min(sb_rx0, mouse_x);
+				tab_textures_sb_y0   = math_min(sb_ry0, mouse_y);
+				tab_textures_sb_x1   = math_max(sb_rx0, mouse_x);
+				tab_textures_sb_y1   = math_max(sb_ry0, mouse_y);
 			}
 
 			for (i32 row = 0; row < math_floor(math_ceil(filtered->length / (float)num)); ++row) {
@@ -419,6 +421,8 @@ void tab_textures_draw(ui_handle_t *htab) {
 							sb_in_cell = true;
 							sb_x0      = sel_mw;
 							sb_y0      = sel_mh;
+							sb_rx0     = mouse_x;
+							sb_ry0     = mouse_y;
 							gc_unroot(sb_origin);
 							sb_origin = string_copy(asset->file);
 							gc_root(sb_origin);
@@ -521,25 +525,6 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 			if (!drag_pos_set) {
 				tab_textures_drag_pos = -1;
-			}
-
-			// Rubber band overlay (draw in content space: restore the scroll-baked cursor)
-			if (tab_textures_select_box && sb_stroke && sb_moved && mouse_down("left")) {
-				f32 bx = math_min(sb_x0, sel_mw);
-				f32 by = math_min(sb_y0, sel_mh);
-				f32 bw = math_abs(sel_mw - sb_x0);
-				f32 bh = math_abs(sel_mh - sb_y0);
-				f32 ox = g_ui->_x, oy = g_ui->_y;
-				g_ui->_x = 0;
-				g_ui->_y = g_ui->current_window->scroll_offset;
-				ui_fill(bx, by, bw, bh, 0x2838c938);
-				ui_fill(bx, by, bw, 2, 0xff38c938);
-				ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
-				ui_fill(bx, by, 2, bh, 0xff38c938);
-				ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
-				g_ui->_x = ox;
-				g_ui->_y = oy;
-				iron_log("TSB rect %.0f,%.0f %.0fx%.0f\n", bx, by, bw, bh);
 			}
 		}
 		else {

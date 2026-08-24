@@ -488,6 +488,23 @@ void base_update(void *_) {
 		draw_end();
 	}
 
+	// File/texture select-box rubber band (raw framebuffer coords fed by the
+	// panels while a stroke is active)
+	if ((ui_files_sb_show || tab_textures_sb_show) && !ui_files_sb_suppress) {
+		bool t = tab_textures_sb_show;
+		f32  x0 = t ? tab_textures_sb_x0 : ui_files_sb_x0;
+		f32  y0 = t ? tab_textures_sb_y0 : ui_files_sb_y0;
+		f32  x1 = t ? tab_textures_sb_x1 : ui_files_sb_x1;
+		f32  y1 = t ? tab_textures_sb_y1 : ui_files_sb_y1;
+		draw_begin(NULL, false, 0);
+		draw_set_color(0x3038c938);
+		draw_filled_rect(x0, y0, x1 - x0, y1 - y0);
+		draw_set_color(0xff38c938);
+		draw_rect(x0, y0, x1 - x0, y1 - y0, 2.0);
+		draw_set_color(0xffffffff);
+		draw_end();
+	}
+
 	bool using_menu = ui_menu_show && mouse_y > ui_header_h;
 	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_handle == NULL;
 
