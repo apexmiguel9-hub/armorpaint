@@ -399,6 +399,7 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 
 	// Feed the screen-space rubber band to base_render's overlay pass
 	if (ui_files_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+		g_ui->current_window->redraws = 2; // Keep re-rendering so the sweep hits every cell
 		ui_files_sb_show = true;
 		ui_files_sb_x0   = math_min(sb_rx0, mouse_x);
 		ui_files_sb_y0   = math_min(sb_ry0, mouse_y);

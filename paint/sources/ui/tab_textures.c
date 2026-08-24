@@ -353,6 +353,7 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 			// Feed the screen-space rubber band to base_render's overlay pass
 			if (tab_textures_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+				g_ui->current_window->redraws = 2; // Keep re-rendering so the sweep hits every slot
 				tab_textures_sb_show = true;
 				tab_textures_sb_x0   = math_min(sb_rx0, mouse_x);
 				tab_textures_sb_y0   = math_min(sb_ry0, mouse_y);
