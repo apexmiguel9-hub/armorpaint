@@ -201,18 +201,6 @@ static bool last_begin_was_screen = false;
 static bool gpu_pass_open         = false; // authoritative: is a render pass currently open in the cmd buffer?
 static void gpu_lazy_end_if_open();
 
-// Close ANY open render pass before touching resources (copies, layouts, binds)
-static void gpu_end_pass_for_resource_op() {
-	if (!gpu_pass_open) {
-		return;
-	}
-	gpu_pass_open     = false;
-	lazy_screen_open  = false;
-	iron_shim_end_rendering(command_buffer);
-	perf_ts_mark();
-	++perf_frame_ends;
-}
-
 // Per-pass GPU timestamp profiling (shim renderpass path).
 #define PERF_TS_MAX   128
 static VkQueryPool perf_ts_pool     = VK_NULL_HANDLE;
@@ -227,6 +215,18 @@ static void perf_ts_mark(void) {
 	if (perf_ts_ready && perf_ts_count < PERF_TS_MAX) {
 		vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, perf_ts_pool, perf_ts_count++);
 	}
+}
+
+// Close ANY open render pass before touching resources (copies, layouts, binds)
+static void gpu_end_pass_for_resource_op() {
+	if (!gpu_pass_open) {
+		return;
+	}
+	gpu_pass_open     = false;
+	lazy_screen_open  = false;
+	iron_shim_end_rendering(command_buffer);
+	perf_ts_mark();
+	++perf_frame_ends;
 }
 
 static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
