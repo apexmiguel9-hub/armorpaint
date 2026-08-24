@@ -646,7 +646,12 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 				// Rubber band: add every cell the box passes over once it becomes a drag
 				if (sb_stroke && sb_moved && mouse_down("left")) {
 					bool hov = sel_mw >= uix && sel_mw < uix + sb_cw && sel_mh >= uiy && sel_mh < uiy + sb_ch;
+					static i32 sb_dbg3 = 0;
+					if (!hov && sb_dbg3++ % 40 == 0) {
+						iron_log("SB miss m=%.0f,%.0f uix=%.0f uiy=%.0f cw=%.0f ch=%.0f\n", sel_mw, sel_mh, uix, uiy, sb_cw, sb_ch);
+					}
 					if (hov && !ui_files_multi_has(cell_path)) {
+						iron_log("SB add %s\n", f);
 						ui_files_multi_toggle(cell_path);
 					}
 				}
