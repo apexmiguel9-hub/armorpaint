@@ -3171,6 +3171,13 @@ scene_t *startup_get_scene(void) {
 				c->link                  = "_taa_blend";
 				sc->constants->buffer[0] = c;
 			}
+			{
+				shader_const_t *c        = (shader_const_t *)gc_alloc(sizeof(shader_const_t));
+				c->name                  = "tex_size";
+				c->type                  = "float2";
+				c->link                  = "_size(tex)";
+				any_array_push(sc->constants, c);
+			}
 			sc->texture_units = (tex_unit_t_array_t *)any_array_create(2);
 			{
 				tex_unit_t *tu               = (tex_unit_t *)gc_alloc(sizeof(tex_unit_t));

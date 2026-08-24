@@ -2,6 +2,7 @@
 #[set(everything)]
 const constants: {
 	taa_blend: float;
+	tex_size: float2;
 };
 
 #[set(everything)]
@@ -30,10 +31,65 @@ fun taa_pass_vert(input: vert_in): vert_out {
 	return output;
 }
 
+fun vec_min3(a: float3, b: float3): float3 {
+	var r: float3;
+	r.x = min(a.x, b.x);
+	r.y = min(a.y, b.y);
+	r.z = min(a.z, b.z);
+	return r;
+}
+
+fun vec_max3(a: float3, b: float3): float3 {
+	var r: float3;
+	r.x = max(a.x, b.x);
+	r.y = max(a.y, b.y);
+	r.z = max(a.z, b.z);
+	return r;
+}
+
 fun taa_pass_frag(input: vert_out): float4 {
 	var current: float4 = sample_lod(tex, sampler_linear, input.tex, 0.0);
+
+	// Neighborhood clamp (AABB of the 3x3 block in YCoCg would be fancier,
+	// RGB min/max is enough here): allows keeping most of the previous frame
+	// without ghosting when the image changes.
+	var texel: float2 = float2(1.0 / constants.tex_size.x, 1.0 / constants.tex_size.y);
+	var n0: float3 = sample_lod(tex, sampler_linear, input.tex + float2(-texel.x, -texel.y), 0.0).rgb;
+	var n1: float3 = sample_lod(tex, sampler_linear, input.tex + float2(0.0, -texel.y), 0.0).rgb;
+	var n2: float3 = sample_lod(tex, sampler_linear, input.tex + float2(texel.x, -texel.y), 0.0).rgb;
+	var n3: float3 = sample_lod(tex, sampler_linear, input.tex + float2(-texel.x, 0.0), 0.0).rgb;
+	var n4: float3 = sample_lod(tex, sampler_linear, input.tex + float2(texel.x, 0.0), 0.0).rgb;
+	var n5: float3 = sample_lod(tex, sampler_linear, input.tex + float2(-texel.x, texel.y), 0.0).rgb;
+	var n6: float3 = sample_lod(tex, sampler_linear, input.tex + float2(0.0, texel.y), 0.0).rgb;
+	var n7: float3 = sample_lod(tex, sampler_linear, input.tex + float2(texel.x, texel.y), 0.0).rgb;
+
+	var minc: float3 = vec_min3(current.rgb, n0);
+	minc = vec_min3(minc, n1);
+	minc = vec_min3(minc, n2);
+	minc = vec_min3(minc, n3);
+	minc = vec_min3(minc, n4);
+	minc = vec_min3(minc, n5);
+	minc = vec_min3(minc, n6);
+	minc = vec_min3(minc, n7);
+
+	var maxc: float3 = vec_max3(current.rgb, n0);
+	maxc = vec_max3(maxc, n1);
+	maxc = vec_max3(maxc, n2);
+	maxc = vec_max3(maxc, n3);
+	maxc = vec_max3(maxc, n4);
+	maxc = vec_max3(maxc, n5);
+	maxc = vec_max3(maxc, n6);
+	maxc = vec_max3(maxc, n7);
+
 	var previous: float4 = sample_lod(tex2, sampler_linear, input.tex, 0.0);
-	return float4(lerp3(current.rgb, previous.rgb, constants.taa_blend), 1.0);
+	var clamped: float3 = float3(
+		clamp(previous.rgb.x, minc.x, maxc.x),
+		clamp(previous.rgb.y, minc.y, maxc.y),
+		clamp(previous.rgb.z, minc.z, maxc.z));
+
+	// Blend toward the clamped history - taa_blend close to 1.0 accumulates
+	// many jittered frames for smooth edges; the clamp above keeps it stable.
+	return float4(lerp3(current.rgb, clamped, constants.taa_blend), 1.0);
 }
 
 #[pipe]
