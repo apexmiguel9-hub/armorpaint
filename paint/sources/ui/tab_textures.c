@@ -205,6 +205,8 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 	if (ui_tab(htab, tr("Textures"), false, -1, false) && g_ui->_window_h > ui_statusbar_default_h * UI_SCALE()) {
 
+		static bool sb_suppress = false; // Ignore the touch release that enabled select-box via the toolbar button
+
 		ui_begin_sticky();
 
 		ui_handle_t *hsearch = ui_handle(__ID__);
@@ -239,6 +241,7 @@ void tab_textures_draw(ui_handle_t *htab) {
 		}
 		if (ui_icon_button(tr("Select"), tab_textures_select_box ? ICON_CHECK : ICON_SELECT, UI_ALIGN_CENTER)) {
 			tab_textures_select_box = !tab_textures_select_box;
+			sb_suppress             = tab_textures_select_box;
 			if (!tab_textures_select_box && tab_textures_multi_select != NULL) {
 				tab_textures_multi_select->length = 0;
 			}
@@ -284,31 +287,51 @@ void tab_textures_draw(ui_handle_t *htab) {
 			i32  imgw_val     = math_floor(50 * UI_SCALE());
 
 			// Select-box state
-			static bool  sb_on = false;
-			static bool  sb_in_cell = false;
-			static bool  sb_moved = false;
-			static f32   sb_x0 = 0.0;
-			static f32   sb_y0 = 0.0;
-			static char *sb_origin = NULL;
-			f32          sel_mw    = mouse_x - g_ui->_window_x;
-			f32          sel_mh    = mouse_y - g_ui->_window_y;
+			static bool  sb_stroke  = false; // A press is being tracked in the grid area
+			static bool  sb_in_cell = false; // The press started on a slot
+			static bool  sb_moved   = false; // The press turned into a drag
+			static f32   sb_x0      = 0.0;
+			static f32   sb_y0      = 0.0;
+			static char *sb_origin  = NULL;
+			f32          sel_mw     = mouse_x - g_ui->_window_x;
+			f32          sel_mh     = mouse_y - g_ui->_window_y;
 
 			if (mouse_released("left")) {
-				if (tab_textures_select_box) {
-					if (!sb_in_cell) { // Tap outside the slots: clear and exit
+				if (sb_suppress) { // Release that enabled the mode via toolbar button
+					sb_suppress = false;
+				}
+				else if (tab_textures_select_box && !sb_moved) {
+					if (sb_in_cell && sb_origin != NULL) { // Plain tap on a slot: toggle it
+						tab_textures_multi_toggle(sb_origin);
+					}
+					else if (!sb_in_cell) { // Tap outside the slots: clear and exit
 						if (tab_textures_multi_select != NULL) {
 							tab_textures_multi_select->length = 0;
 						}
 						tab_textures_select_box = false;
 					}
-					else if (!sb_moved && sb_origin != NULL) { // Plain tap: toggle slot
-						tab_textures_multi_toggle(sb_origin);
-					}
 				}
-				sb_on      = false;
+				sb_stroke  = false;
 				sb_in_cell = false;
+				sb_moved   = false;
 				gc_unroot(sb_origin);
 				sb_origin = NULL;
+			}
+
+			f32 sb_grid_top = g_ui->_window_y + g_ui->_y - 8 * UI_SCALE();
+			if (tab_textures_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+				sb_stroke  = true;
+				sb_in_cell = false;
+				sb_moved   = false;
+				sb_x0      = sel_mw;
+				sb_y0      = sel_mh;
+				gc_unroot(sb_origin);
+				sb_origin = NULL;
+			}
+			else if (sb_stroke && mouse_down("left")) {
+				if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
+					sb_moved = true;
+				}
 			}
 
 			for (i32 row = 0; row < math_floor(math_ceil(filtered->length / (float)num)); ++row) {
@@ -360,22 +383,18 @@ void tab_textures_draw(ui_handle_t *htab) {
 					}
 
 					if (tab_textures_select_box) {
-						// Rubber band: add every slot the box passes over
-						if (sb_on && mouse_down("left")) {
+						// Rubber band: add every slot the box passes over once it becomes a drag
+						if (sb_stroke && sb_moved && mouse_down("left")) {
 							bool hov = sel_mw >= uix && sel_mw < uix + imgw_val && sel_mh >= uiy && sel_mh < uiy + imgw_val;
 							if (hov && !tab_textures_multi_has(asset->file)) {
 								tab_textures_multi_toggle(asset->file);
 							}
-							if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
-								sb_moved = true;
-							}
 						}
 						if (_state == UI_STATE_STARTED && g_ui->input_y > g_ui->_window_y) { // Box stroke starts on a slot
-							sb_on      = true;
+							sb_stroke  = true;
 							sb_in_cell = true;
 							sb_x0      = sel_mw;
 							sb_y0      = sel_mh;
-							sb_moved   = false;
 							gc_unroot(sb_origin);
 							sb_origin = string_copy(asset->file);
 							gc_root(sb_origin);

@@ -221,6 +221,18 @@ void tab_browser_draw(ui_handle_t *htab) {
 			if (ui_icon_button(tr("Refresh"), ICON_REFRESH, UI_ALIGN_CENTER) || (in_focus && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_F5)) {
 				tab_browser_refresh = true;
 			}
+
+			// Select box
+			if (ui_icon_button(tr("Select"), ui_files_select_box ? ICON_CHECK : ICON_SELECT, UI_ALIGN_CENTER)) {
+				ui_files_select_box    = !ui_files_select_box;
+				ui_files_sb_suppress   = ui_files_select_box;
+				if (!ui_files_select_box) {
+					ui_files_multi_clear();
+				}
+			}
+			if (g_ui->is_hovered) {
+				ui_tooltip(ui_files_select_box ? tr("Box select on, tap outside to exit") : tr("Select multiple files"));
+			}
 		}
 		else {
 			// Menu, Up, Select box, Path
@@ -237,7 +249,8 @@ void tab_browser_draw(ui_handle_t *htab) {
 				ui_menu_draw(&tab_browser_draw_side_menu, -1, -1);
 			}
 			if (ui_icon_button(tr("Select"), ui_files_select_box ? ICON_CHECK : ICON_SELECT, UI_ALIGN_CENTER)) {
-				ui_files_select_box = !ui_files_select_box;
+				ui_files_select_box  = !ui_files_select_box;
+				ui_files_sb_suppress = ui_files_select_box;
 				if (!ui_files_select_box) {
 					ui_files_multi_clear();
 				}
