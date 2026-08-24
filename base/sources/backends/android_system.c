@@ -1158,15 +1158,14 @@ static void perf_pump_start() {
 // fence waits => low observed CPU load) and frame cost grows ~50%.
 #include <sched.h>
 #include <stdint.h>
+#include <sys/syscall.h>
 
 static volatile int iron_boost_active = 0;
 
 static void *iron_boost_spin(void *arg) {
-	int core = 6 + (int)(intptr_t)arg;
-	cpu_set_t set;
-	CPU_ZERO(&set);
-	CPU_SET(core, &set);
-	sched_setaffinity(0, sizeof(set), &set);
+	int           core = 6 + (int)(intptr_t)arg;
+	unsigned long mask = 1ul << core;
+	syscall(__NR_sched_setaffinity, 0, sizeof(mask), &mask); // pin to big core
 	while (iron_boost_active) {
 		for (volatile int i = 0; i < 50000; ++i) {
 		}
