@@ -195,6 +195,12 @@ int iron_perf_draws    = 0;
 // Pass-list dump control
 bool passlist_dump_frame = false;
 int  passlist_count      = 0;
+
+// Per-pass descriptor list filled each frame by gpu_begin_internal/gpu_draw_internal
+#define PL_MAX 32
+static uint16_t pl_w[PL_MAX], pl_h[PL_MAX];
+static uint8_t  pl_fmt[PL_MAX], pl_flags[PL_MAX]; // bit0=clear, bit1=screen
+static uint8_t  pl_draws[PL_MAX];
 // Lazy screen-pass merging state
 static bool lazy_screen_open      = false;
 static bool last_begin_was_screen = false;
@@ -1681,6 +1687,15 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	render_area.extent.width  = target->width;
 	render_area.extent.height = target->height;
 
+	if (passlist_count < PL_MAX) {
+		pl_w[passlist_count]    = (uint16_t)target->width;
+		pl_h[passlist_count]    = (uint16_t)target->height;
+		pl_fmt[passlist_count]  = (uint8_t)target->format;
+		pl_flags[passlist_count] = (uint8_t)((wants_clear ? 1 : 0) | (screen_pass ? 2 : 0));
+		pl_draws[passlist_count] = 0;
+	}
+	++passlist_count;
+
 	VkClearValue clear_value;
 	memset(&clear_value, 0, sizeof(VkClearValue));
 	clear_value.color.float32[0] = ((color & 0x00ff0000) >> 16) / 255.0f;
@@ -1847,6 +1862,7 @@ void gpu_present_internal() {
 	static int             pf_count = 0;
 	static long            pf_fence_ms = 0;
 	static int             pf_slow_n = 0;
+	static int             pl_dump_n = 0;
 	struct timespec        now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	long pf_ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
@@ -1860,9 +1876,6 @@ void gpu_present_internal() {
 	iron_perf_begins   = perf_frame_begins;
 	iron_perf_draws    = perf_frame_draws;
 	passlist_dump_frame = (pf_count % 120 == 3);
-	if (passlist_dump_frame) {
-		passlist_count = 0;
-	}
 	perf_frame_begins = 0;
 	perf_frame_ends   = 0;
 	perf_frame_draws  = 0;
@@ -1902,6 +1915,16 @@ void gpu_present_internal() {
 	if (pf_fence_ms > 25 && (++fw_log_n % 10) == 1) {
 		iron_log("PERF: present fence_wait=%ldms", pf_fence_ms);
 	}
+	if (passlist_dump_frame || (pf_fence_ms > 40 && (++pl_dump_n % 15) == 1)) {
+		char pline[512];
+		int  poff = snprintf(pline, sizeof(pline), "PERF: passlist[%d]:", passlist_count);
+		for (int i = 0; i < passlist_count && i < PL_MAX && poff < 460; ++i) {
+			poff += snprintf(pline + poff, sizeof(pline) - poff, " %ux%u/f%u/d%u%s", pl_w[i], pl_h[i], pl_fmt[i], pl_draws[i],
+			                 (pl_flags[i] & 2) ? "*" : "");
+		}
+		iron_log("%s", pline);
+	}
+	passlist_count = 0;
 	if (perf_ts_ready && perf_ts_count >= 2) {
 		uint64_t ts[PERF_TS_MAX];
 		if (vkGetQueryPoolResults(device, perf_ts_pool, 0, perf_ts_count, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
@@ -1970,6 +1993,9 @@ void gpu_present_internal() {
 void gpu_draw_internal() {
 	vkCmdDrawIndexed(command_buffer, current_ib->count, 1, 0, 0, 0);
 	++perf_frame_draws;
+	if (passlist_count > 0 && passlist_count <= PL_MAX && pl_draws[passlist_count - 1] < 255) {
+		++pl_draws[passlist_count - 1];
+	}
 }
 
 void gpu_viewport(int x, int y, int width, int height) {
