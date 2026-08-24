@@ -313,6 +313,16 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	gc_root(ui_files_last_search);
 	handle->changed = false;
 
+	// TEMP calibration: self-enable select-box shortly after launch
+	{
+		static bool sb_auto = false;
+		if (!sb_auto && sys_time() > 8.0) {
+			sb_auto             = true;
+			ui_files_select_box = true;
+			iron_log("SB auto-enabled\n");
+		}
+	}
+
 	if (ui_files_select_pending != NULL) {
 		ui_files_selected = -1;
 		for (i32 i = 0; i < ui_files_files->length; ++i) {
@@ -728,23 +738,31 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 		}
 	}
 
-	// Rubber band overlay (draw in content space: restore the scroll-baked cursor)
+	// Rubber band overlay
 	if (ui_files_select_box && sb_stroke && sb_moved && mouse_down("left")) {
 		f32 bx = math_min(sb_x0, sel_mw);
 		f32 by = math_min(sb_y0, sel_mh);
 		f32 bw = math_abs(sel_mw - sb_x0);
 		f32 bh = math_abs(sel_mh - sb_y0);
-		f32 ox = g_ui->_x, oy = g_ui->_y;
-		g_ui->_x = 0;
-		g_ui->_y = g_ui->current_window->scroll_offset;
-		ui_fill(bx, by, bw, bh, 0x2838c938);
-		ui_fill(bx, by, bw, 2, 0xff38c938);
-		ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
-		ui_fill(bx, by, 2, bh, 0xff38c938);
-		ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
-		g_ui->_x = ox;
-		g_ui->_y = oy;
-		iron_log("SB rect %.0f,%.0f %.0fx%.0f\n", bx, by, bw, bh);
+		{
+			f32 ox = g_ui->_x, oy = g_ui->_y;
+			g_ui->_x = 0;
+			g_ui->_y = g_ui->current_window->scroll_offset;
+			ui_fill(bx, by, bw, bh, 0x3038c938); // GREEN probe: content space
+			ui_fill(bx, by, bw, 2, 0xff38c938);
+			ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
+			ui_fill(bx, by, 2, bh, 0xff38c938);
+			ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
+			g_ui->_x = g_ui->_window_x;
+			g_ui->_y = g_ui->_window_y;
+			ui_fill(bx, by, bw, bh, 0x3000ff00);   // ??? probe
+			ui_fill(bx, by, bw, 2, 0xff00ff00);    // GREEN2 border probe: screen-space candidate
+			ui_fill(bx, by + bh - 2, bw, 2, 0xff00ff00);
+			ui_fill(bx, by, 2, bh, 0xff00ff00);
+			ui_fill(bx + bw - 2, by, 2, bh, 0xff00ff00);
+			g_ui->_x = ox;
+			g_ui->_y = oy;
+		}
 	}
 
 	g_ui->_y += slotw * 0.8;
