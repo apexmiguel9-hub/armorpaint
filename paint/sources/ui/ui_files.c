@@ -346,16 +346,22 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 
 	if (mouse_released("left")) {
 		if (ui_files_sb_suppress) { // Release that enabled the mode via toolbar button
+			iron_log("SB release: suppressed\n");
 			ui_files_sb_suppress = false;
 		}
 		else if (ui_files_select_box && !sb_moved) {
 			if (sb_in_cell && sb_origin != NULL) { // Plain tap on a file: toggle it
+				iron_log("SB release: tap-toggle %s\n", sb_origin);
 				ui_files_multi_toggle(sb_origin);
 			}
 			else if (!sb_in_cell) { // Tap outside the file grid: clear and exit
+				iron_log("SB release: clear+exit\n");
 				ui_files_multi_clear();
 				ui_files_select_box = false;
 			}
+		}
+		else if (ui_files_select_box && sb_moved) {
+			iron_log("SB release: keep (%d selected)\n", ui_files_multi_count());
 		}
 		sb_stroke  = false;
 		sb_in_cell = false;
@@ -366,6 +372,7 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 
 	f32 sb_grid_top = g_ui->_window_y + g_ui->_y - 8 * UI_SCALE();
 	if (ui_files_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+		iron_log("SB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
 		sb_stroke  = true;
 		sb_in_cell = false;
 		sb_moved   = false;
@@ -376,6 +383,9 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	}
 	else if (sb_stroke && mouse_down("left")) {
 		if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
+			if (!sb_moved) {
+				iron_log("SB moved\n");
+			}
 			sb_moved = true;
 		}
 	}
@@ -708,6 +718,26 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 			break;
 		}
 	}
+
+	// Rubber band overlay
+	if (ui_files_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+		f32 bx = math_min(sb_x0, sel_mw);
+		f32 by = math_min(sb_y0, sel_mh);
+		f32 bw = math_abs(sel_mw - sb_x0);
+		f32 bh = math_abs(sel_mh - sb_y0);
+		f32 ox = g_ui->_x, oy = g_ui->_y;
+		g_ui->_x = 0;
+		g_ui->_y = 0;
+		ui_fill(bx, by, bw, bh, 0x2838c938);
+		ui_fill(bx, by, bw, 2, 0xff38c938);
+		ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
+		ui_fill(bx, by, 2, bh, 0xff38c938);
+		ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
+		g_ui->_x = ox;
+		g_ui->_y = oy;
+		iron_log("SB rect %.0f,%.0f %.0fx%.0f\n", bx, by, bw, bh);
+	}
+
 	g_ui->_y += slotw * 0.8;
 	return handle->text;
 }

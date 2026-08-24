@@ -263,6 +263,11 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 		ui_end_sticky();
 
+		static i32 sb_geo = 0;
+		if (sb_geo++ % 300 == 0) {
+			iron_log("TSB geo win=%.0f,%.0f %.0fx%.0f y=%.0f\n", g_ui->_window_x, g_ui->_window_y, g_ui->_window_w, g_ui->_window_h, g_ui->_y);
+		}
+
 		char *search = to_lower_case(hsearch->text);
 
 		if (g_project->_->assets->length > 0) {
@@ -298,18 +303,24 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 			if (mouse_released("left")) {
 				if (sb_suppress) { // Release that enabled the mode via toolbar button
+					iron_log("TSB release: suppressed\n");
 					sb_suppress = false;
 				}
 				else if (tab_textures_select_box && !sb_moved) {
 					if (sb_in_cell && sb_origin != NULL) { // Plain tap on a slot: toggle it
+						iron_log("TSB release: tap-toggle %s\n", sb_origin);
 						tab_textures_multi_toggle(sb_origin);
 					}
 					else if (!sb_in_cell) { // Tap outside the slots: clear and exit
+						iron_log("TSB release: clear+exit\n");
 						if (tab_textures_multi_select != NULL) {
 							tab_textures_multi_select->length = 0;
 						}
 						tab_textures_select_box = false;
 					}
+				}
+				else if (tab_textures_select_box && sb_moved) {
+					iron_log("TSB release: keep (%d selected)\n", tab_textures_multi_select == NULL ? 0 : tab_textures_multi_select->length);
 				}
 				sb_stroke  = false;
 				sb_in_cell = false;
@@ -320,6 +331,7 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 			f32 sb_grid_top = g_ui->_window_y + g_ui->_y - 8 * UI_SCALE();
 			if (tab_textures_select_box && mouse_down("left") && !sb_stroke && sel_mh >= sb_grid_top) { // Stroke may start anywhere in the grid area
+				iron_log("TSB start %.0f,%.0f top=%.0f\n", sel_mw, sel_mh, sb_grid_top);
 				sb_stroke  = true;
 				sb_in_cell = false;
 				sb_moved   = false;
@@ -330,6 +342,9 @@ void tab_textures_draw(ui_handle_t *htab) {
 			}
 			else if (sb_stroke && mouse_down("left")) {
 				if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
+					if (!sb_moved) {
+						iron_log("TSB moved\n");
+					}
 					sb_moved = true;
 				}
 			}
@@ -497,6 +512,25 @@ void tab_textures_draw(ui_handle_t *htab) {
 
 			if (!drag_pos_set) {
 				tab_textures_drag_pos = -1;
+			}
+
+			// Rubber band overlay
+			if (tab_textures_select_box && sb_stroke && sb_moved && mouse_down("left")) {
+				f32 bx = math_min(sb_x0, sel_mw);
+				f32 by = math_min(sb_y0, sel_mh);
+				f32 bw = math_abs(sel_mw - sb_x0);
+				f32 bh = math_abs(sel_mh - sb_y0);
+				f32 ox = g_ui->_x, oy = g_ui->_y;
+				g_ui->_x = 0;
+				g_ui->_y = 0;
+				ui_fill(bx, by, bw, bh, 0x2838c938);
+				ui_fill(bx, by, bw, 2, 0xff38c938);
+				ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
+				ui_fill(bx, by, 2, bh, 0xff38c938);
+				ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
+				g_ui->_x = ox;
+				g_ui->_y = oy;
+				iron_log("TSB rect %.0f,%.0f %.0fx%.0f\n", bx, by, bw, bh);
 			}
 		}
 		else {
