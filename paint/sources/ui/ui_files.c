@@ -748,18 +748,16 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 			f32 ox = g_ui->_x, oy = g_ui->_y;
 			g_ui->_x = 0;
 			g_ui->_y = g_ui->current_window->scroll_offset;
-			ui_fill(bx, by, bw, bh, 0x3038c938); // GREEN probe: content space
+			ui_fill(bx + bw / 2 - 6, by + bh / 2 - 6, 12, 12, 0xffff00ff); // MAGENTA center marker: content space
+			static i32 sb_dbg2 = 0;
+			if (sb_dbg2++ % 20 == 0) {
+				iron_log("SB geo m=%.0f,%.0f bx=%.0f by=%.0f wx=%.0f wy=%.0f sc=%.0f cx=%.0f cy=%.0f\n", sel_mw, sel_mh, bx, by, g_ui->_window_x, g_ui->_window_y, g_ui->current_window->scroll_offset, ox, oy);
+			}
+			ui_fill(bx, by, bw, bh, 0x3038c938);
 			ui_fill(bx, by, bw, 2, 0xff38c938);
 			ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
 			ui_fill(bx, by, 2, bh, 0xff38c938);
 			ui_fill(bx + bw - 2, by, 2, bh, 0xff38c938);
-			g_ui->_x = g_ui->_window_x;
-			g_ui->_y = g_ui->_window_y;
-			ui_fill(bx, by, bw, bh, 0x3000ff00);   // ??? probe
-			ui_fill(bx, by, bw, 2, 0xff00ff00);    // GREEN2 border probe: screen-space candidate
-			ui_fill(bx, by + bh - 2, bw, 2, 0xff00ff00);
-			ui_fill(bx, by, 2, bh, 0xff00ff00);
-			ui_fill(bx + bw - 2, by, 2, bh, 0xff00ff00);
 			g_ui->_x = ox;
 			g_ui->_y = oy;
 		}
