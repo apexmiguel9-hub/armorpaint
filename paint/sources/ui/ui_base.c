@@ -364,7 +364,6 @@ tab_draw_array_t_array_t *ui_base_init_hwnd_tabs() {
 
 #ifdef IRON_ANDROID
 	if (iron_window_width() <= 1080) {
-		array_splice(a2, 5, 1); // Timeline
 		array_splice(a2, 3, 1); // Sounds
 	}
 #endif

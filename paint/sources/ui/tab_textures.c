@@ -296,7 +296,6 @@ void tab_textures_draw(ui_handle_t *htab) {
 			if (mouse_released("left")) {
 				if (tab_textures_select_box) {
 					if (!sb_in_cell) { // Tap outside the slots: clear and exit
-						tab_textures_multi_select->length = tab_textures_multi_select == NULL ? 0 : tab_textures_multi_select->length;
 						if (tab_textures_multi_select != NULL) {
 							tab_textures_multi_select->length = 0;
 						}
