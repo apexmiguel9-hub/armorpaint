@@ -329,7 +329,8 @@ void tab_textures_draw(ui_handle_t *htab) {
 				sb_origin = NULL;
 			}
 
-			f32 sb_grid_top = g_ui->_window_y + g_ui->_y - 8 * UI_SCALE();
+			// sel_mh is window-relative, so compare against _y directly (no _window_y)
+			f32 sb_grid_top = g_ui->_y - 8 * UI_SCALE();
 			if (tab_textures_select_box && mouse_down("left") && !sb_stroke) {
 				static i32 sb_dbg = 0;
 				if (sb_dbg++ % 15 == 0) {
