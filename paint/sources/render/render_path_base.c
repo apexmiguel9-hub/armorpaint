@@ -326,19 +326,10 @@ void render_path_base_draw_deferred_light() {
 // }
 
 void render_path_base_draw_taa(char *bufa, char *bufb) {
-#ifdef IRON_ANDROID
-	// No TAA history on Android: blit the composited buffer straight to screen.
-	// Readers of "last" use "buf" instead (always holds the latest composite).
-	render_path_set_target("", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
-	render_path_bind_target(bufa, "tex");
-	if (render_path_base_ssaa4()) {
-		render_path_draw_shader("Scene/supersample_resolve/supersample_resolveRGBA64");
-	}
-	else {
-		render_path_draw_shader("Scene/copy_pass/copy_pass");
-	}
-	return;
-#endif
+	// TAA runs here too: the "last" history target exists on every platform
+	// (render_path_deferred_init) and the camera jitter is applied globally,
+	// so the desktop path below works as-is. At supersample 0.5 this costs
+	// one fullscreen RGBA64 pass - far cheaper than raising the render scale.
 	render_path_set_target(bufb, NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
 	render_path_bind_target(bufa, "tex");
 
