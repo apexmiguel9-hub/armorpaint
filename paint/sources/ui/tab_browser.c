@@ -121,11 +121,7 @@ void tab_browser_go_to_cloud() {
 }
 
 void tab_browser_go_to_disk() {
-#ifdef IRON_ANDROID
-	tab_browser_hpath->text = string_copy(iron_internal_save_path());
-#else
 	tab_browser_hpath->text = string_copy(ui_files_default_path);
-#endif
 }
 
 void tab_browser_draw_side_menu() {

@@ -108,6 +108,8 @@ any_map_t       *import_text_importers;
 char *ui_files_default_path = "C:\\Users";
 #elif defined(IRON_MACOS)
 char *ui_files_default_path = "/Users";
+#elif defined(IRON_ANDROID)
+char *ui_files_default_path = "/storage/emulated/0/";
 #else
 char *ui_files_default_path = "/";
 #endif
