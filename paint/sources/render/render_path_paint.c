@@ -991,37 +991,6 @@ void render_path_paint_draw() {
 			else {
 				render_path_paint_commands_paint(true);
 			}
-
-#ifdef IRON_ANDROID
-			// GPU opp keepalive: the Mali governor drops to a low operating point
-			// between frames (bursty utilization), making stroke frames ~50%
-			// slower. A few invisible copy passes on a dedicated waste target keep
-			// sustained load high enough to hold the boosted opp mid-stroke.
-			if (g_context->pdirty > 0 && !g_context->paint2d) {
-				if (any_map_get(render_path_render_targets, "gpu_waste0") == NULL) {
-					char           *fmt = "RGBA32";
-					i32             res = 512;
-					render_target_t *w0  = render_target_create();
-					w0->name             = "gpu_waste0";
-					w0->width            = res;
-					w0->height           = res;
-					w0->format           = fmt;
-					render_path_create_render_target(w0);
-					render_target_t *w1 = render_target_create();
-					w1->name            = "gpu_waste1";
-					w1->width           = res;
-					w1->height          = res;
-					w1->format          = fmt;
-					render_path_create_render_target(w1);
-				}
-				for (i32 i = 0; i < 6; ++i) {
-					bool even              = (i & 1) == 0;
-					render_path_set_target(even ? "gpu_waste1" : "gpu_waste0", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
-					render_path_bind_target(even ? "gpu_waste0" : "gpu_waste1", "tex");
-					render_path_draw_shader("Scene/copy_pass/copy_pass");
-				}
-			}
-#endif
 		}
 	}
 
