@@ -153,6 +153,7 @@ typedef struct gpu_acceleration_structure {
 } gpu_acceleration_structure_t;
 
 int  gpu_max_bound_textures(void);
+extern const char *gpu_pass_tag;
 void gpu_begin(gpu_texture_t **targets, int count, gpu_texture_t *depth_buffer, gpu_clear_t flags, unsigned color, float depth);
 void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth);
 void gpu_end(void);

@@ -2491,6 +2491,8 @@ void render_path_render_frame(void) {
 }
 
 void render_path_set_target(char *target, string_array_t *additional, char *depth_buffer, gpu_clear_t flags, i32 color, f32 depth) {
+	extern const char *gpu_pass_tag;
+	gpu_pass_tag = string_equals(target, "") ? "screen" : target;
 	{
 		extern bool passlist_dump_frame;
 		if (passlist_dump_frame) {
