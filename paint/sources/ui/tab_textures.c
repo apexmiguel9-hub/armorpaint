@@ -298,8 +298,10 @@ void tab_textures_draw(ui_handle_t *htab) {
 			static f32   sb_x0      = 0.0;
 			static f32   sb_y0      = 0.0;
 			static char *sb_origin  = NULL;
+			// Content-space pointer coords: cursor/draw space has the window
+			// scroll baked in, so subtract it here.
 			f32          sel_mw     = mouse_x - g_ui->_window_x;
-			f32          sel_mh     = mouse_y - g_ui->_window_y;
+			f32          sel_mh     = mouse_y - g_ui->_window_y - g_ui->current_window->scroll_offset;
 
 			if (mouse_released("left")) {
 				if (sb_suppress) { // Release that enabled the mode via toolbar button
@@ -521,7 +523,7 @@ void tab_textures_draw(ui_handle_t *htab) {
 				tab_textures_drag_pos = -1;
 			}
 
-			// Rubber band overlay
+			// Rubber band overlay (draw in content space: restore the scroll-baked cursor)
 			if (tab_textures_select_box && sb_stroke && sb_moved && mouse_down("left")) {
 				f32 bx = math_min(sb_x0, sel_mw);
 				f32 by = math_min(sb_y0, sel_mh);
@@ -529,7 +531,7 @@ void tab_textures_draw(ui_handle_t *htab) {
 				f32 bh = math_abs(sel_mh - sb_y0);
 				f32 ox = g_ui->_x, oy = g_ui->_y;
 				g_ui->_x = 0;
-				g_ui->_y = 0;
+				g_ui->_y = g_ui->current_window->scroll_offset;
 				ui_fill(bx, by, bw, bh, 0x2838c938);
 				ui_fill(bx, by, bw, 2, 0xff38c938);
 				ui_fill(bx, by + bh - 2, bw, 2, 0xff38c938);
