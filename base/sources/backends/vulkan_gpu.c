@@ -209,6 +209,7 @@ static void gpu_end_pass_for_resource_op() {
 	gpu_pass_open     = false;
 	lazy_screen_open  = false;
 	iron_shim_end_rendering(command_buffer);
+	perf_ts_mark();
 	++perf_frame_ends;
 }
 
@@ -219,6 +220,14 @@ static uint32_t    perf_ts_count    = 0;
 static float       perf_ts_period   = 1.0f;
 static bool        perf_ts_ready    = false;
 static int         perf_ts_logcount = 0;
+
+// GPU timestamp marker: BOTTOM_OF_PIPE samples when all prior work completes,
+// so deltas between consecutive markers approximate per-pass GPU time.
+static void perf_ts_mark(void) {
+	if (perf_ts_ready && perf_ts_count < PERF_TS_MAX) {
+		vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, perf_ts_pool, perf_ts_count++);
+	}
+}
 
 static VkRenderPass iron_shim_get_render_pass(const struct iron_rp_key *key) {
 	for (int i = 0; i < iron_rp_cache_count; ++i) {
@@ -1723,6 +1732,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 	if (gpu_pass_open) {
 		gpu_end_pass_for_resource_op();
 	}
+	perf_ts_mark();
 	clock_gettime(CLOCK_MONOTONIC, &pb0);
 	iron_shim_begin_rendering(command_buffer, &current_rendering_info);
 	clock_gettime(CLOCK_MONOTONIC, &pb1);
@@ -1750,6 +1760,7 @@ void gpu_lazy_end_if_open() {
 	lazy_screen_open = false;
 	gpu_pass_open    = false;
 	iron_shim_end_rendering(command_buffer);
+	perf_ts_mark();
 	++perf_frame_ends;
 }
 
@@ -1764,6 +1775,7 @@ void gpu_end_internal() {
 	}
 	gpu_pass_open = false;
 	iron_shim_end_rendering(command_buffer);
+	perf_ts_mark();
 	++perf_frame_ends;
 
 	for (int i = 0; i < current_render_targets_count; ++i) {
@@ -1833,12 +1845,14 @@ void gpu_execute_and_wait() {
 void gpu_present_internal() {
 	static struct timespec pf_ts;
 	static int             pf_count = 0;
+	static long            pf_fence_ms = 0;
+	static int             pf_slow_n = 0;
 	struct timespec        now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	long pf_ms = (now.tv_sec - pf_ts.tv_sec) * 1000 + (now.tv_nsec - pf_ts.tv_nsec) / 1000000;
-	if (pf_count > 0 && pf_count <= 120) {
-		iron_log("PERF: frame %d total=%ldms begins=%d ends=%d draws=%d begin_cpu=%ld.%02ldms", pf_count, pf_ms, perf_frame_begins,
-		         perf_frame_ends, perf_frame_draws, perf_frame_begin_us / 1000, (perf_frame_begin_us / 10) % 100);
+	if ((pf_count > 0 && pf_count <= 120) || (pf_ms > 40 && (++pf_slow_n % 15) == 1)) {
+		iron_log("PERF: frame %d total=%ldms fence=%ldms begins=%d ends=%d draws=%d begin_cpu=%ld.%02ldms", pf_count, pf_ms, pf_fence_ms,
+		         perf_frame_begins, perf_frame_ends, perf_frame_draws, perf_frame_begin_us / 1000, (perf_frame_begin_us / 10) % 100);
 	}
 	pf_ts = now;
 	++pf_count;
@@ -1878,10 +1892,16 @@ void gpu_present_internal() {
 		submit_info.pWaitDstStageMask  = &wait_stage;
 		framebuffer_wait_pending       = false;
 	}
+	struct timespec fw0, fw1;
+	clock_gettime(CLOCK_MONOTONIC, &fw0);
 	vkQueueSubmit(queue, 1, &submit_info, fence);
 	vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-
-	// Per-pass GPU profile: GPU is idle now, results are final
+	clock_gettime(CLOCK_MONOTONIC, &fw1);
+	pf_fence_ms = (fw1.tv_sec - fw0.tv_sec) * 1000 + (fw1.tv_nsec - fw0.tv_nsec) / 1000000;
+	static int fw_log_n = 0;
+	if (pf_fence_ms > 25 && (++fw_log_n % 10) == 1) {
+		iron_log("PERF: present fence_wait=%ldms", pf_fence_ms);
+	}
 	if (perf_ts_ready && perf_ts_count >= 2) {
 		uint64_t ts[PERF_TS_MAX];
 		if (vkGetQueryPoolResults(device, perf_ts_pool, 0, perf_ts_count, sizeof(ts), ts, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
@@ -1907,7 +1927,8 @@ void gpu_present_internal() {
 				int t = idx[i];
 				idx[i] = idx[mx], idx[mx] = t;
 			}
-			if (perf_ts_logcount < 8 || (perf_ts_logcount % 60) == 0) {
+			static int psb_log_n = 0;
+			if (perf_ts_logcount < 8 || (perf_ts_logcount % 60) == 0 || (total_ms > 30.0 && (++psb_log_n % 15) == 1)) {
 				char line[256];
 				int  off = snprintf(line, sizeof(line), "PERF: gpu passes=%d total=%.1fms top:", pairs, total_ms);
 				for (int i = 0; i < pairs && i < 5 && off < 220; ++i) {
