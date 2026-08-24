@@ -169,6 +169,7 @@ void                      ui_files_multi_toggle(char *path);
 bool                      ui_files_multi_has(char *path);
 i32                       ui_files_multi_count(void);
 void                      ui_files_multi_clear(void);
+extern string_array_t    *ui_files_multi_select;
 void                      ui_files_go_up(ui_handle_t *handle);
 void                      ui_files_navigate(i32 dx, i32 dy);
 void                      ui_files_enter_selected(ui_handle_t *handle);
