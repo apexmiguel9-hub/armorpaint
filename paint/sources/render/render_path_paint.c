@@ -974,8 +974,12 @@ void render_path_paint_draw() {
 		}
 		else { // Paint
 			if (g_config->dilate_radius > 0 && !g_context->paint2d) {
-				// Defer dilation to stroke end (saves 6 fullscreen passes per frame)
-				render_path_paint_dilation_pending = true;
+				// Defer dilation to stroke end (saves 6 fullscreen passes per frame).
+				// Only arm while a fresh dab is actually pending: arming unconditionally
+				// made the idle-time flush below fire dilation on EVERY idle frame.
+				if (g_context->pdirty > 0) {
+					render_path_paint_dilation_pending = true;
+				}
 				render_path_paint_commands_paint(false);
 			}
 			else {
