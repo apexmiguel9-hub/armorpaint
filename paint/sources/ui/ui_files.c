@@ -66,6 +66,10 @@ static void ui_files_draw_multi_border() {
 	ui_fill(52, -2, 2, 56, c);
 }
 
+// Select-box mode: while true, dragging across file cells rubber-band selects
+// them and tapping outside the grid clears the selection and exits the mode.
+bool ui_files_select_box = false;
+
 void ui_files_release_keys() {
 	// File dialog may prevent firing key up events
 	keyboard_up_listener(KEY_CODE_SHIFT);
@@ -325,6 +329,33 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	ui_files_num_cols = num;
 
 	g_ui->_y += 4; // Don't cut off the border around selected materials
+
+	// Select-box state (persists across frames within this function)
+	static bool  sb_on = false;
+	static bool  sb_in_cell = false;
+	static bool  sb_moved = false;
+	static f32   sb_x0 = 0.0;
+	static f32   sb_y0 = 0.0;
+	static char *sb_origin = NULL;
+	f32          sel_mw    = mouse_x - g_ui->_window_x;
+	f32          sel_mh    = mouse_y - g_ui->_window_y;
+
+	if (mouse_released("left")) {
+		if (ui_files_select_box) {
+			if (!sb_in_cell) { // Tap outside the file grid: clear and exit
+				ui_files_multi_clear();
+				ui_files_select_box = false;
+			}
+			else if (!sb_moved && sb_origin != NULL) { // Plain tap on a cell: toggle it
+				ui_files_multi_toggle(sb_origin);
+			}
+		}
+		sb_on      = false;
+		sb_in_cell = false;
+		gc_unroot(sb_origin);
+		sb_origin = NULL;
+	}
+
 	// Directory contents
 	for (i32 row = 0; row < math_floor(math_ceil(ui_files_files->length / (float)num)); ++row) {
 		f32_array_t *ar = f32_array_create_from_raw((f32[]){}, 0);
@@ -548,9 +579,34 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 				context_menu(string("%s%s%s", handle->text, PATH_SEP, f));
 			}
 
-			if (state == UI_STATE_STARTED && !is_folder && ui_files_multi_mode) {
+			char *cell_path = string("%s%s%s", handle->text, PATH_SEP, f);
+
+			if (ui_files_select_box && !is_folder) {
+				// Rubber band: add every cell the box passes over
+				if (sb_on && mouse_down("left")) {
+					i32  cw  = 50 * UI_SCALE();
+					bool hov = sel_mw >= uix && sel_mw < uix + cw && sel_mh >= uiy && sel_mh < uiy + cw;
+					if (hov && !ui_files_multi_has(cell_path)) {
+						ui_files_multi_toggle(cell_path);
+					}
+					if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
+						sb_moved = true;
+					}
+				}
+				if (state == UI_STATE_STARTED) { // Box stroke starts on a cell
+					sb_on      = true;
+					sb_in_cell = true;
+					sb_x0      = sel_mw;
+					sb_y0      = sel_mh;
+					sb_moved   = false;
+					gc_unroot(sb_origin);
+					sb_origin = string_copy(cell_path);
+					gc_root(sb_origin);
+				}
+			}
+			else if (state == UI_STATE_STARTED && !is_folder && ui_files_multi_mode) {
 				// Selection mode: a tap toggles the file in/out of the batch
-				ui_files_multi_toggle(string("%s%s%s", handle->text, PATH_SEP, f));
+				ui_files_multi_toggle(cell_path);
 			}
 			else if (state == UI_STATE_STARTED) {
 				if (drag_files) {

@@ -223,17 +223,27 @@ void tab_browser_draw(ui_handle_t *htab) {
 			}
 		}
 		else {
-			// Menu, Up, Refresh
+			// Menu, Up, Select box, Path
 			f32_array_t *row = f32_array_create_from_raw(
 			    (f32[]){
-			        0.5 / 4.0,
-			        0.5 / 4.0,
-			        3.0 / 4.0,
+			        0.5 / 5.0,
+			        0.5 / 5.0,
+			        0.6 / 5.0,
+			        3.4 / 5.0,
 			    },
-			    3);
+			    4);
 			ui_row(row);
 			if (ui_icon_button("", ICON_MENU, UI_ALIGN_CENTER)) {
 				ui_menu_draw(&tab_browser_draw_side_menu, -1, -1);
+			}
+			if (ui_icon_button(tr("Select"), ui_files_select_box ? ICON_CHECK : ICON_SELECT, UI_ALIGN_CENTER)) {
+				ui_files_select_box = !ui_files_select_box;
+				if (!ui_files_select_box) {
+					ui_files_multi_clear();
+				}
+			}
+			if (g_ui->is_hovered) {
+				ui_tooltip(ui_files_select_box ? tr("Box select on, tap outside to exit") : tr("Select multiple files"));
 			}
 		}
 

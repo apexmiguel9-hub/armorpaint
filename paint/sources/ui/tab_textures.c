@@ -46,6 +46,10 @@ bool tab_textures_try_batch_node_drop(asset_t *dragged) {
 	return true;
 }
 
+// Select-box mode: dragging rubber-band selects slots, tapping outside the
+// grid clears and exits.
+static bool tab_textures_select_box = false;
+
 void tab_textures_draw_set_as_envmap(void *_) {
 	import_envmap_run(_tab_textures_draw_asset->file, _tab_textures_draw_img);
 }
@@ -209,17 +213,19 @@ void tab_textures_draw(ui_handle_t *htab) {
 		                                                          (f32[]){
 		                                                              -100,
 		                                                              -100,
+		                                                              -100,
 		                                                              -200,
 		                                                          },
-		                                                          3)
+		                                                          4)
 		                                                    : f32_array_create_from_raw(
 		                                                          (f32[]){
+		                                                              -100,
 		                                                              -100,
 		                                                              -100,
 		                                                              -200,
 		                                                              -40,
 		                                                          },
-		                                                          4);
+		                                                          5);
 		ui_row(row);
 
 		if (ui_icon_button(tr("Import"), ICON_IMPORT, UI_ALIGN_CENTER)) {
@@ -230,6 +236,15 @@ void tab_textures_draw(ui_handle_t *htab) {
 		}
 		if (ui_icon_button(tr("2D View"), ICON_WINDOW, UI_ALIGN_CENTER)) {
 			ui_base_show_2d_view(VIEW_2D_TYPE_ASSET);
+		}
+		if (ui_icon_button(tr("Select"), tab_textures_select_box ? ICON_CHECK : ICON_SELECT, UI_ALIGN_CENTER)) {
+			tab_textures_select_box = !tab_textures_select_box;
+			if (!tab_textures_select_box && tab_textures_multi_select != NULL) {
+				tab_textures_multi_select->length = 0;
+			}
+		}
+		if (g_ui->is_hovered) {
+			ui_tooltip(tab_textures_select_box ? tr("Box select on, tap outside to exit") : tr("Select multiple textures"));
 		}
 
 		hsearch->text = string_copy(ui_text_input(hsearch, tr("Search"), UI_ALIGN_LEFT, true, true));
@@ -267,6 +282,35 @@ void tab_textures_draw(ui_handle_t *htab) {
 			f32  uix          = 0.0;
 			f32  uiy          = 0.0;
 			i32  imgw_val     = math_floor(50 * UI_SCALE());
+
+			// Select-box state
+			static bool  sb_on = false;
+			static bool  sb_in_cell = false;
+			static bool  sb_moved = false;
+			static f32   sb_x0 = 0.0;
+			static f32   sb_y0 = 0.0;
+			static char *sb_origin = NULL;
+			f32          sel_mw    = mouse_x - g_ui->_window_x;
+			f32          sel_mh    = mouse_y - g_ui->_window_y;
+
+			if (mouse_released("left")) {
+				if (tab_textures_select_box) {
+					if (!sb_in_cell) { // Tap outside the slots: clear and exit
+						tab_textures_multi_select->length = tab_textures_multi_select == NULL ? 0 : tab_textures_multi_select->length;
+						if (tab_textures_multi_select != NULL) {
+							tab_textures_multi_select->length = 0;
+						}
+						tab_textures_select_box = false;
+					}
+					else if (!sb_moved && sb_origin != NULL) { // Plain tap: toggle slot
+						tab_textures_multi_toggle(sb_origin);
+					}
+				}
+				sb_on      = false;
+				sb_in_cell = false;
+				gc_unroot(sb_origin);
+				sb_origin = NULL;
+			}
 
 			for (i32 row = 0; row < math_floor(math_ceil(filtered->length / (float)num)); ++row) {
 				i32          mult = g_config->show_asset_names ? 2 : 1;
@@ -316,7 +360,29 @@ void tab_textures_draw(ui_handle_t *htab) {
 						drag_pos_set          = true;
 					}
 
-					if (_state == UI_STATE_STARTED && g_ui->input_y > g_ui->_window_y) {
+					if (tab_textures_select_box) {
+						// Rubber band: add every slot the box passes over
+						if (sb_on && mouse_down("left")) {
+							bool hov = sel_mw >= uix && sel_mw < uix + imgw_val && sel_mh >= uiy && sel_mh < uiy + imgw_val;
+							if (hov && !tab_textures_multi_has(asset->file)) {
+								tab_textures_multi_toggle(asset->file);
+							}
+							if (math_abs(sel_mw - sb_x0) > 4 || math_abs(sel_mh - sb_y0) > 4) {
+								sb_moved = true;
+							}
+						}
+						if (_state == UI_STATE_STARTED && g_ui->input_y > g_ui->_window_y) { // Box stroke starts on a slot
+							sb_on      = true;
+							sb_in_cell = true;
+							sb_x0      = sel_mw;
+							sb_y0      = sel_mh;
+							sb_moved   = false;
+							gc_unroot(sb_origin);
+							sb_origin = string_copy(asset->file);
+							gc_root(sb_origin);
+						}
+					}
+					else if (_state == UI_STATE_STARTED && g_ui->input_y > g_ui->_window_y) {
 						base_drag_off_x = -(mouse_x - uix - g_ui->_window_x - 3);
 						base_drag_off_y = -(mouse_y - uiy - g_ui->_window_y + 1);
 						gc_unroot(base_drag_asset);
