@@ -325,6 +325,9 @@ void tab_textures_draw(ui_handle_t *htab) {
 						tab_textures_select_box = false;
 					}
 				}
+				else if (tab_textures_select_box && sb_moved) { // Box stroke finished: keep the selection, exit the mode so slots can be dragged again
+					tab_textures_select_box = false;
+				}
 				sb_stroke  = false;
 				sb_in_cell = false;
 				sb_moved   = false;
