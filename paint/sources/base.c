@@ -271,13 +271,16 @@ void base_update(void *_) {
 		base_is_dragging = true;
 	}
 	if (mouse_released("left") && has_drag) {
-		if (base_drag_asset != NULL) {
+		if (base_drag_asset != NULL && tab_textures_try_batch_drop(base_drag_asset)) {
+			// Batch drop applied to every selected asset
+			gc_unroot(base_drag_asset);
+			base_drag_asset = NULL;
+		}
+		else if (base_drag_asset != NULL) {
 
 			// Create image texture
 			if (context_in_nodes()) {
-				if (!tab_textures_try_batch_node_drop(base_drag_asset)) {
-					ui_nodes_accept_asset_drop(array_index_of(g_project->_->assets, base_drag_asset));
-				}
+				ui_nodes_accept_asset_drop(array_index_of(g_project->_->assets, base_drag_asset));
 			}
 			else if (context_in_3d_view()) {
 				if (ends_with(to_lower_case(base_drag_asset->file), ".hdr")) {

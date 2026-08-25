@@ -30,20 +30,37 @@ bool tab_textures_multi_has(char *file) {
 	return tab_textures_multi_select != NULL && string_array_index_of(tab_textures_multi_select, file) >= 0;
 }
 
-bool tab_textures_try_batch_node_drop(asset_t *dragged) {
+// If the dragged slot is part of the box selection, apply the drop action to
+// every selected asset in the current context. Returns false when the drag is
+// not a batch drag or the context has no batch semantics.
+bool tab_textures_try_batch_drop(asset_t *dragged) {
 	if (!tab_textures_multi_has(dragged->file)) {
 		return false;
 	}
+	bool handled = false;
 	for (i32 i = 0; i < tab_textures_multi_select->length; ++i) {
 		char *file = tab_textures_multi_select->buffer[i];
 		for (i32 j = 0; j < g_project->_->assets->length; ++j) {
-			if (string_equals(g_project->_->assets->buffer[j]->file, file)) {
-				ui_nodes_accept_asset_drop(j);
-				break;
+			asset_t *a = g_project->_->assets->buffer[j];
+			if (!string_equals(a->file, file)) {
+				continue;
 			}
+			if (context_in_nodes()) {
+				ui_nodes_accept_asset_drop(j);
+				handled = true;
+			}
+			else if (context_in_layers() || context_in_2d_view(VIEW_2D_TYPE_LAYER)) {
+				layers_create_image_mask(a);
+				handled = true;
+			}
+			else if (context_in_3d_view() && ends_with(to_lower_case(a->file), ".hdr")) {
+				import_envmap_run(a->file, project_get_image(a));
+				handled = true;
+			}
+			break;
 		}
 	}
-	return true;
+	return handled;
 }
 
 // Select-box mode: dragging rubber-band selects slots, tapping outside the

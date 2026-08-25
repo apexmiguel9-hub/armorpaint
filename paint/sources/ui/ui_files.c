@@ -385,6 +385,7 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 			}
 		}
 		else if (ui_files_select_box && sb_moved) { // Box stroke finished: keep the selection, exit the mode so files can be dragged again
+			ui_files_multi_mode = false; // Touches on files must drag instead of toggling
 			ui_files_select_box = false;
 		}
 		sb_stroke  = false;

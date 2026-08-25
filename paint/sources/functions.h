@@ -620,7 +620,7 @@ void   tab_fonts_accept_font_drop(slot_font_t *font);
 void   tab_textures_accept_asset_drop(asset_t *asset);
 bool   tab_textures_multi_has(char *file);
 void   tab_textures_multi_toggle(char *file);
-bool   tab_textures_try_batch_node_drop(asset_t *dragged);
+bool   tab_textures_try_batch_drop(asset_t *dragged);
 void   tab_browser_show_directory(char *directory);
 void   tab_browser_draw(ui_handle_t *htab);
 mesh_object_t_array_t       *util_mesh_get_visible();
