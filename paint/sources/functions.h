@@ -169,6 +169,7 @@ void                      ui_files_multi_toggle(char *path);
 bool                      ui_files_multi_has(char *path);
 i32                       ui_files_multi_count(void);
 void                      ui_files_multi_clear(void);
+bool                      ui_files_try_batch_import(char *dragged);
 extern string_array_t    *ui_files_multi_select;
 extern bool               ui_files_select_box;
 extern bool               ui_files_sb_suppress;

@@ -326,7 +326,9 @@ void base_update(void *_) {
 				base_drop_y = mouse_y;
 
 				_base_material_count = g_project->_->materials->length;
-				import_asset_run(base_drag_file, base_drop_x, base_drop_y, true, true, &base_update_import_asset_done);
+				if (!ui_files_try_batch_import(base_drag_file)) {
+					import_asset_run(base_drag_file, base_drop_x, base_drop_y, true, true, &base_update_import_asset_done);
+				}
 			}
 
 			gc_unroot(base_drag_file);

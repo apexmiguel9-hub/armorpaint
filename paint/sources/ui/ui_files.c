@@ -58,6 +58,19 @@ void ui_files_multi_clear(void) {
 	ui_files_multi_mode = false;
 }
 
+// If the dragged file is part of the box selection, import every selected
+// file instead of just the dragged one. Returns false when the drag is not a
+// batch drag so callers fall back to single-file handling.
+bool ui_files_try_batch_import(char *dragged) {
+	if (!ui_files_multi_has(dragged)) {
+		return false;
+	}
+	for (i32 i = 0; i < ui_files_multi_select->length; ++i) {
+		import_asset_run(ui_files_multi_select->buffer[i], base_drop_x, base_drop_y, true, true, &base_update_import_asset_done);
+	}
+	return true;
+}
+
 static void ui_files_draw_multi_border() {
 	i32 c = 0xff38c938;
 	ui_fill(-2, -2, 54, 2, c);
