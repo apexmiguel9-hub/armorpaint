@@ -321,6 +321,15 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 	gc_root(ui_files_last_search);
 	handle->changed = false;
 
+	{ // TEMP diagnostics
+		static bool sb_auto = false;
+		if (!sb_auto && sys_time() > 8.0) {
+			sb_auto             = true;
+			ui_files_select_box = true;
+			iron_log("SB auto-enabled\n");
+		}
+	}
+
 	if (ui_files_select_pending != NULL) {
 		ui_files_selected = -1;
 		for (i32 i = 0; i < ui_files_files->length; ++i) {
@@ -405,6 +414,13 @@ char *ui_files_file_browser(ui_handle_t *handle, bool drag_files, char *search, 
 		ui_files_sb_y0   = math_min(sb_ry0, mouse_y);
 		ui_files_sb_x1   = math_max(sb_rx0, mouse_x);
 		ui_files_sb_y1   = math_max(sb_ry0, mouse_y);
+	}
+
+	{ // TEMP state trace
+		static i32 sb_dbg4 = 0;
+		if (ui_files_select_box && sb_dbg4++ % 30 == 0) {
+			iron_log("SB st en=%d s=%d mv=%d dn=%d m=%.0f,%.0f top=%.0f sc=%.0f\n", ui_files_select_box, sb_stroke, sb_moved, mouse_down("left"), sel_mw, sel_mh, sb_grid_top, g_ui->current_window->scroll_offset);
+		}
 	}
 
 	// Directory contents
