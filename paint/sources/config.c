@@ -271,11 +271,12 @@ void config_init() {
 		g_config->experimental        = false;
 		g_config->neural_res          = 512;
 		g_config->console_model       = CONSOLE_MODEL_QWEN;
-#if defined(IRON_ANDROID) || defined(IRON_IOS)
-		g_config->render_mode = RENDER_MODE_FORWARD;
-#else
-		g_config->render_mode = RENDER_MODE_DEFERRED;
-#endif
+g_config->render_mode = RENDER_MODE_DEFERRED;
+		// NOTE: low defaults to FORWARD on Android (cheaper fill on Mali/Adreno),
+		// but IMG PowerVR (BXM-8-256) crashes the MTK Vulkan driver in the
+		// forward path (compass/overlay mesh draw -> SIGSEGV), so Android starts
+		// on the deferred path; PowerVR users keep deferred, others can switch
+		// to "Mobile/Forward" in Preferences.
 		g_config->workspace = WORKSPACE_PAINT_3D;
 		g_config->workflow  = WORKFLOW_PBR;
 	}
