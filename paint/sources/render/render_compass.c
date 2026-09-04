@@ -41,6 +41,13 @@ static bool _compass_compare_quat(quat_t a, quat_t b) {
 }
 
 void render_compass() {
+	if (gpu_vendor_is_powervr()) {
+		// IMG PowerVR (BXM-8-256) crashes the MTK Vulkan driver (SIGSEGV 0x7aa)
+		// drawing the compass mesh via gpu_draw in the forward/overlay path.
+		// Skip it on PowerVR - the widget is cosmetic.
+		return;
+	}
+
 	if (!g_context->show_compass || g_config->workspace == WORKSPACE_PLAYER || g_context->capturing_screenshot) {
 		return;
 	}
