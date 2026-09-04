@@ -558,6 +558,26 @@ void base_update(void *_) {
 		g_context->last_paint_y = -1;
 	}
 #endif
+
+#ifdef IRON_ANDROID
+	// Tunability aid: emit one FPS line per second to logcat
+	{
+		static double _lfps_acc = 0, _lfps_last = 0;
+		static int    _lfps_n   = 0;
+		double        now       = sys_time();
+		if (_lfps_last < 1) {
+			_lfps_last = now;
+		}
+		_lfps_acc += now - _lfps_last;
+		_lfps_last = now;
+		_lfps_n++;
+		if (_lfps_acc >= 1.0) {
+			iron_log("FPS %d (%.1fms/frame)", (int)(_lfps_n / _lfps_acc), _lfps_acc * 1000.0 / _lfps_n);
+			_lfps_acc = 0;
+			_lfps_n   = 0;
+		}
+	}
+#endif
 }
 
 void base_init() {

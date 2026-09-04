@@ -46,7 +46,11 @@ void context_init() {
 	g_context->clone_delta_y                = 0.0;
 	g_context->clone_set_source             = false;
 	g_context->show_compass                 = true;
+	#if defined(IRON_ANDROID) || defined(IRON_IOS)
+	g_context->show_statistics              = true; // FPS/ms overlay on by default on mobile
+#else
 	g_context->show_statistics              = false;
+#endif
 	g_context->last_paint_vec_x             = -1.0;
 	g_context->last_paint_vec_y             = -1.0;
 	g_context->prev_paint_vec_x             = -1.0;
