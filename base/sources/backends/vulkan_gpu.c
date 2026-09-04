@@ -660,8 +660,10 @@ static bool find_layer(VkLayerProperties *layers, int layer_count, const char *w
 }
 
 static uint32_t memory_type_from_properties(uint32_t type_bits, VkFlags requirements_mask) {
-	uint32_t     best_index = 0;
-	VkDeviceSize best_size  = 0;
+	uint32_t     original_bits = type_bits;
+	uint32_t     best_index    = 0;
+	bool         found         = false;
+	VkDeviceSize best_size     = 0;
 	for (uint32_t i = 0; i < 32; i++) {
 		if ((type_bits & 1) == 1) {
 			if (is_amd && memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD) {
@@ -673,12 +675,22 @@ static uint32_t memory_type_from_properties(uint32_t type_bits, VkFlags requirem
 				if (heap_size > best_size) {
 					best_size  = heap_size;
 					best_index = i;
+					found      = true;
 				}
 			}
 		}
 		type_bits >>= 1;
 	}
-	return best_index;
+	if (!found && (requirements_mask & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+		// IMG PowerVR exposes no single HOST_VISIBLE|HOST_COHERENT|HOST_CACHED
+		// memory type (e.g. BXM-8-256 only has DEVICE_LOCAL|HOST_VISIBLE|HOST_COHERENT).
+		// Without this fallback the readback buffer would be allocated from a
+		// device-local-only type and vkMapMemory would crash the driver.
+		VkFlags relaxed = requirements_mask & ~(VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		relaxed |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+		return memory_type_from_properties(original_bits, relaxed);
+	}
+	return found ? best_index : 0;
 }
 
 static VkAccessFlags access_mask(VkImageLayout layout) {
@@ -2109,7 +2121,7 @@ void gpu_get_render_target_pixels(gpu_texture_t *render_target, uint8_t *data) {
 		mem_alloc.allocationSize       = mem_reqs.size;
 		mem_alloc.memoryTypeIndex =
 		    memory_type_from_properties(mem_reqs.memoryTypeBits,
-		                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+		                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		vkAllocateMemory(device, &mem_alloc, NULL, &readback_mem);
 		vkBindBufferMemory(device, readback_buffer, readback_mem, 0);
 	}
