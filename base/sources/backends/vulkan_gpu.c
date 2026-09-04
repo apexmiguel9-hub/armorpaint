@@ -2826,6 +2826,11 @@ char *gpu_device_name() {
 	return device_name;
 }
 
+bool gpu_vendor_is_powervr() {
+	const char *n = device_name;
+	return n != NULL && (strstr(n, "PowerVR") != NULL || strstr(n, "BXM") != NULL || strstr(n, "IMG") != NULL);
+}
+
 bool gpu_bc7_supported(int width, int height, gpu_texture_format_t format) {
 	static bool bc7_supported = false;
 #ifdef WITH_BC7

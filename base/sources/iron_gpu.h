@@ -222,6 +222,7 @@ void  gpu_get_render_target_pixels(gpu_texture_t *render_target, uint8_t *data);
 void  gpu_set_texture(uint32_t unit, gpu_texture_t *texture);
 void  gpu_use_linear_sampling(bool b);
 char *gpu_device_name();
+bool  gpu_vendor_is_powervr();
 bool  gpu_bc7_supported(int width, int height, gpu_texture_format_t format);
 
 #ifdef WITH_BC7

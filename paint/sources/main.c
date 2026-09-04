@@ -549,6 +549,15 @@ void _kickstart() {
 	context_init();
 	sys_start(config_get_options());
 
+#ifdef IRON_VULKAN
+	// IMG PowerVR (BXM-8-256) crashes in the forward render path (compass/overlay
+	// mesh draw -> vulkan.mtk.so SIGSEGV). Fall back to the deferred path, which
+	// renders the same overlays fine on PowerVR.
+	if (gpu_vendor_is_powervr()) {
+		g_config->render_mode = RENDER_MODE_DEFERRED;
+	}
+#endif
+
 #ifdef is_debug
 	double t_start = iron_time();
 #endif
