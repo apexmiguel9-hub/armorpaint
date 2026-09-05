@@ -227,7 +227,7 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 				// game; this opts us in on Android 13+).
 				try {
 					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
-					gm.setGameState(true)
+					gm.setGameState(android.app.GameManager.GAME_STATE_GAMEPLAY)
 				} catch (t: Throwable) {
 				}
 			}
@@ -237,7 +237,7 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 			if (Build.VERSION.SDK_INT >= 33) {
 				try {
 					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
-					gm.setGameState(false)
+					gm.setGameState(android.app.GameManager.GAME_STATE_UNKNOWN)
 				} catch (t: Throwable) {
 				}
 			}
