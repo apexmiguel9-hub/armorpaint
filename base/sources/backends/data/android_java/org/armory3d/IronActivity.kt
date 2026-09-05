@@ -221,9 +221,26 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 		super.onWindowFocusChanged(hasFocus)
 		if (hasFocus) {
 			delayedHideSystemUI()
+			if (Build.VERSION.SDK_INT >= 33) {
+				// Signal "game state" so the OEM game booster / perf HAL keeps
+				// CPU+GPU clocks ramped (Motorola turbo mode needs a recognized
+				// game; this opts us in on Android 13+).
+				try {
+					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
+					gm.setGameState(true)
+				} catch (t: Throwable) {
+				}
+			}
 		}
 		else {
 			hideSystemUIHandler.removeMessages(0)
+			if (Build.VERSION.SDK_INT >= 33) {
+				try {
+					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
+					gm.setGameState(false)
+				} catch (t: Throwable) {
+				}
+			}
 		}
 	}
 
