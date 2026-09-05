@@ -223,23 +223,15 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 			delayedHideSystemUI()
 			if (Build.VERSION.SDK_INT >= 33) {
 				// Signal "game state" so the OEM game booster / perf HAL keeps
-				// CPU+GPU clocks ramped (Motorola turbo mode needs a recognized
-				// game; this opts us in on Android 13+).
-				try {
-					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
-					gm.setGameState(android.app.GameManager.GameState.GAMEPLAY)
-				} catch (t: Throwable) {
-				}
+// CPU+GPU clocks ramped (Motorola turbo mode needs a recognized
+			// game; this opts us in on Android 13+).
+			setGameBoost(true)
 			}
 		}
 		else {
 			hideSystemUIHandler.removeMessages(0)
 			if (Build.VERSION.SDK_INT >= 33) {
-				try {
-					val gm = this.getSystemService(Context.GAME_SERVICE) as android.app.GameManager
-					gm.setGameState(android.app.GameManager.GameState.UNKNOWN)
-				} catch (t: Throwable) {
-				}
+				setGameBoost(false)
 			}
 		}
 	}
@@ -247,6 +239,47 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 	override fun onKeyMultiple(keyCode: Int, count: Int, event: KeyEvent): Boolean {
 		this.nativeIronKeyPress(event.characters)
 		return false
+	}
+
+	// Best-effort OEM game-booster opt-in. GameManager#setGameState keeps the
+	// Android signature (boolean) on 13/14 and changed to an int/enum on newer
+	// SDKs, so call it via reflection to compile against any SDK.
+	private fun setGameBoost(active: Boolean) {
+		try {
+			val gm: Any? = getSystemService(Context.GAME_SERVICE)
+			if (gm == null) return
+			for (m in gm.javaClass.methods) {
+				if (m.name != "setGameState") continue
+				val p = m.parameterTypes
+				if (p.size != 1) continue
+				val arg: Any? =
+					if (p[0] == java.lang.Boolean.TYPE) {
+						kotlin.Boolean(active)
+					}
+					else if (p[0] == java.lang.Integer.TYPE) {
+						try {
+							val f = gm.javaClass.getField(if (active) "GAME_STATE_GAMEPLAY" else "GAME_STATE_UNKNOWN")
+							f.getInt(null)
+						}
+						catch (e: NoSuchFieldException) {
+							if (active) 2 else 0
+						}
+					}
+					else {
+						try {
+							val f = p[0].getField(if (active) "GAMEPLAY" else "UNKNOWN")
+							f.get(null)
+						}
+						catch (e: NoSuchFieldException) {
+							continue
+						}
+					}
+				m.invoke(gm, arg)
+				return
+			}
+		}
+		catch (t: Throwable) {
+		}
 	}
 
 	private external fun nativeIronKeyPress(chars: String)
