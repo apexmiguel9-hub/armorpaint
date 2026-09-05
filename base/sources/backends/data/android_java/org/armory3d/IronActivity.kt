@@ -254,7 +254,7 @@ class IronActivity: NativeActivity(), KeyEvent.Callback {
 				if (p.size != 1) continue
 				val arg: Any? =
 					if (p[0] == java.lang.Boolean.TYPE) {
-						kotlin.Boolean(active)
+						java.lang.Boolean.valueOf(active)
 					}
 					else if (p[0] == java.lang.Integer.TYPE) {
 						try {
